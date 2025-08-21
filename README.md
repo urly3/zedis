@@ -1,0 +1,2 @@
+# zedis
+Redis in Zig
