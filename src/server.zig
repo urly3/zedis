@@ -5,7 +5,7 @@ const Store = @import("store.zig").Store;
 pub const Server = struct {
     allocator: std.mem.Allocator,
     address: std.net.Address,
-    listener: std.net.Server,
+    listener: std.net.Stream,
     store: Store,
 
     // Initializes the server, binding it to a specific host and port.
