@@ -6,6 +6,9 @@ const ZedisObject = store_mod.ZedisObject;
 const Command = @import("parser.zig").Command;
 const Value = @import("parser.zig").Value;
 const t_string = @import("./commands/t_string.zig");
+const connection_commands = @import("./commands/connection.zig");
+const CommandRegistry = @import("./commands/registry.zig").CommandRegistry;
+const CommandInfo = @import("./commands/registry.zig").CommandInfo;
 
 pub const Client = struct {
     allocator: std.mem.Allocator,
@@ -13,20 +16,90 @@ pub const Client = struct {
     reader: std.net.Stream.Reader,
     writer: std.net.Stream.Writer,
     store: *Store,
+    command_registry: CommandRegistry,
 
     // Initializes a new client handler.
-    pub fn init(allocator: std.mem.Allocator, connection: std.net.Server.Connection, store: *Store) Client {
+    pub fn init(allocator: std.mem.Allocator, connection: std.net.Server.Connection, store: *Store) !Client {
+        var registry = CommandRegistry.init(allocator);
+
+        // Register all commands
+        try registry.register(.{
+            .name = "PING",
+            .handler = connection_commands.ping,
+            .min_args = 1,
+            .max_args = 2,
+            .description = "Ping the server",
+        });
+
+        try registry.register(.{
+            .name = "ECHO",
+            .handler = connection_commands.echo,
+            .min_args = 2,
+            .max_args = 2,
+            .description = "Echo the given string",
+        });
+
+        try registry.register(.{
+            .name = "QUIT",
+            .handler = connection_commands.quit,
+            .min_args = 1,
+            .max_args = 1,
+            .description = "Close the connection",
+        });
+
+        try registry.register(.{
+            .name = "SET",
+            .handler = t_string.set,
+            .min_args = 3,
+            .max_args = 3,
+            .description = "Set string value of a key",
+        });
+
+        try registry.register(.{
+            .name = "GET",
+            .handler = t_string.get,
+            .min_args = 2,
+            .max_args = 2,
+            .description = "Get string value of a key",
+        });
+
+        try registry.register(.{
+            .name = "INCR",
+            .handler = t_string.incr,
+            .min_args = 2,
+            .max_args = 2,
+            .description = "Increment the value of a key",
+        });
+
+        try registry.register(.{
+            .name = "DECR",
+            .handler = t_string.decr,
+            .min_args = 2,
+            .max_args = 2,
+            .description = "Decrement the value of a key",
+        });
+
+        try registry.register(.{
+            .name = "HELP",
+            .handler = connection_commands.help,
+            .min_args = 1,
+            .max_args = 1,
+            .description = "Show help message",
+        });
+
         return .{
             .allocator = allocator,
             .connection = connection,
             .reader = connection.stream.reader(),
             .writer = connection.stream.writer(),
             .store = store,
+            .command_registry = registry,
         };
     }
 
     // Cleans up client resources.
     pub fn deinit(self: *Client) void {
+        self.command_registry.deinit();
         self.connection.stream.close();
     }
 
@@ -51,95 +124,24 @@ pub const Client = struct {
 
     // Dispatches the parsed command to the appropriate handler function.
     fn executeCommand(self: *Client, command: Command) !void {
-        if (command.args.items.len == 0) {
-            return try self.writeError("ERR empty command");
-        }
-
-        const command_name = command.args.items[0].asSlice();
-
-        if (std.ascii.eqlIgnoreCase(command_name, "PING")) {
-            try self.handlePing(command.args.items);
-        } else if (std.ascii.eqlIgnoreCase(command_name, "ECHO")) {
-            try self.handleEcho(command.args.items);
-        } else if (std.ascii.eqlIgnoreCase(command_name, "SET")) {
-            try self.handleSet(command.args.items);
-        } else if (std.ascii.eqlIgnoreCase(command_name, "GET")) {
-            try self.handleGet(command.args.items);
-        } else if (std.ascii.eqlIgnoreCase(command_name, "QUIT")) {
-            try self.writer.writeAll("+OK\r\n");
-            return self.connection.stream.close();
-        } else if (std.ascii.eqlIgnoreCase(command_name, "INCR")) {
-            try self.handleIncr(command.args.items);
-        } else if (std.ascii.eqlIgnoreCase(command_name, "DECR")) {
-            try self.handleDecr(command.args.items);
-        } else {
-            try self.writeError("ERR unknown command");
-        }
-    }
-
-    // --- Command Handlers ---
-
-    fn handleIncr(self: *Client, args: []const Value) !void {
-        if (args.len != 2) return try self.writeError("ERR wrong number of arguments for 'incr'");
-        const key = args[1].asSlice();
-        try t_string.incrDecr(self.store, key, 1);
-        try self.writer.writeAll("+OK\r\n");
-    }
-
-    fn handleDecr(self: *Client, args: []const Value) !void {
-        if (args.len != 2) return try self.writeError("ERR wrong number of arguments for 'decr'");
-        const key = args[1].asSlice();
-        try t_string.incrDecr(self.store, key, -1);
-        try self.writer.writeAll("+OK\r\n");
-    }
-
-    fn handlePing(self: *Client, args: []const Value) !void {
-        if (args.len > 2) return try self.writeError("ERR wrong number of arguments for 'ping'");
-        if (args.len == 1) {
-            try self.writer.writeAll("+PONG\r\n");
-        } else {
-            try self.writeBulkString(args[1].asSlice());
-        }
-    }
-
-    fn handleEcho(self: *Client, args: []const Value) !void {
-        if (args.len != 2) return try self.writeError("ERR wrong number of arguments for 'echo'");
-        try self.writeBulkString(args[1].asSlice());
-    }
-
-    fn handleSet(self: *Client, args: []const Value) !void {
-        if (args.len != 3) return try self.writeError("ERR wrong number of arguments for 'set'");
-        const key = args[1].asSlice();
-        const value = args[2].asSlice();
-        try self.store.set(key, value);
-        try self.writer.writeAll("+OK\r\n");
-    }
-
-    fn handleGet(self: *Client, args: []const Value) !void {
-        if (args.len != 2) return try self.writeError("ERR wrong number of arguments for 'get'");
-        const key = args[1].asSlice();
-        const value = self.store.get(key);
-        if (value) |v| {
-            switch (v.value) {
-                .string => |s| try self.writeBulkString(s),
-                .int => |i| try self.writeBulkString(try std.fmt.allocPrint(self.allocator, "{d}", .{i})),
-            }
-        } else {
-            try self.writeNull();
-        }
+        try self.command_registry.executeCommand(self, command.args.items);
     }
 
     // --- RESP Writing Helpers ---
 
-    fn writeError(self: *Client, msg: []const u8) !void {
+    pub fn writeError(self: *Client, msg: []const u8) !void {
         try self.writer.print("-{s}\r\n", .{msg});
     }
 
-    fn writeBulkString(self: *Client, str: []const u8) !void {
+    pub fn writeBulkString(self: *Client, str: []const u8) !void {
         try self.writer.print("${d}\r\n{s}\r\n", .{ str.len, str });
     }
 
-    fn writeNull(self: *Client) !void {
+    pub fn writeInt(self: *Client, value: i64) !void {
+        try self.writer.print(":{d}\r\n", .{value});
+    }
+
+    pub fn writeNull(self: *Client) !void {
         try self.writer.writeAll("$-1\r\n");
     }
 };

@@ -19,7 +19,7 @@ pub const Store = struct {
     map: std.StringHashMap(ZedisObject),
     // A mutex is crucial for preventing race conditions when multiple
     // clients try to access the store at the same time.
-    mutex: std.Thread.Mutex,
+    mutex: std.Thread.RwLock,
 
     // Initializes the store.
     pub fn init(allocator: std.mem.Allocator) Store {
@@ -44,36 +44,149 @@ pub const Store = struct {
         self.map.deinit();
     }
 
-    // Sets a key-value pair. It acquires a lock to ensure thread safety.
+    // Sets a key-value pair with a string value. It acquires a lock to ensure thread safety.
     pub fn set(self: *Store, key: []const u8, value: []const u8) !void {
+        const zedis_object = ZedisObject{ .valueType = .string, .value = .{ .string = undefined } };
+        try self.setObject(key, zedis_object, value);
+    }
+
+    // Sets a key-value pair with a ZedisObject. It acquires a lock to ensure thread safety.
+    pub fn setObject(self: *Store, key: []const u8, object: ZedisObject, string_data: ?[]const u8) !void {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        // If the key already exists, we need to free the old value.
-        if (self.map.get(key)) |old_value| {
-            switch (old_value.value) {
+        return self.setObjectUnsafe(key, object, string_data);
+    }
+
+    // Sets a key with an integer value
+    pub fn setInt(self: *Store, key: []const u8, value: i64) !void {
+        const zedis_object = ZedisObject{ .valueType = .int, .value = .{ .int = value } };
+        try self.setObject(key, zedis_object, null);
+    }
+
+    // Internal unsafe version that doesn't acquire locks (for use when already locked)
+    pub fn setObjectUnsafe(self: *Store, key: []const u8, object: ZedisObject, string_data: ?[]const u8) !void {
+        // Check if key already exists and free old memory
+        var key_exists = false;
+        if (self.map.getPtr(key)) |existing_entry| {
+            key_exists = true;
+            // Free the old value if it's a string
+            switch (existing_entry.value) {
                 .string => |str| self.allocator.free(str),
                 .int => {},
             }
         }
 
-        // We must allocate new memory for the key and value because the
-        // incoming slices might be temporary.
-        const key_copy = try self.allocator.dupe(u8, key);
-        errdefer self.allocator.free(key_copy);
-        const value_copy = try self.allocator.dupe(u8, value);
-        errdefer self.allocator.free(value_copy);
+        // If key doesn't exist, we need to allocate memory for the key
+        if (!key_exists) {
+            const key_copy = try self.allocator.dupe(u8, key);
+            errdefer self.allocator.free(key_copy);
 
-        const zedisObject = ZedisObject{ .valueType = .string, .value = .{ .string = value_copy } };
-        try self.map.put(key_copy, zedisObject);
+            // Pre-allocate the entry in the map
+            try self.map.put(key_copy, undefined);
+        }
+
+        // Now we know the key exists in the map, get a pointer to modify it
+        const entry_ptr = self.map.getPtr(key).?;
+
+        // Set up the new object
+        var new_object = object;
+        switch (object.valueType) {
+            .string => {
+                if (string_data) |data| {
+                    // Allocate and copy string data
+                    const value_copy = try self.allocator.dupe(u8, data);
+                    errdefer self.allocator.free(value_copy);
+                    new_object.value = .{ .string = value_copy };
+                } else {
+                    return error.MissingStringData;
+                }
+            },
+            .int => {
+                // Integer values don't need allocation
+                new_object.value = object.value;
+            },
+        }
+
+        // Update the entry
+        entry_ptr.* = new_object;
+    }
+
+    // Delete a key from the store
+    pub fn delete(self: *Store, key: []const u8) bool {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        if (self.map.fetchRemove(key)) |kv| {
+            // Free the key
+            self.allocator.free(kv.key);
+            // Free the value if it's a string
+            switch (kv.value.value) {
+                .string => |str| self.allocator.free(str),
+                .int => {},
+            }
+            return true;
+        }
+        return false;
+    }
+
+    // Check if a key exists
+    pub fn exists(self: *Store, key: []const u8) bool {
+        self.mutex.lockShared();
+        defer self.mutex.unlockShared();
+        return self.map.contains(key);
+    }
+
+    // Get the type of a value
+    pub fn getType(self: *Store, key: []const u8) ?ValueType {
+        self.mutex.lockShared();
+        defer self.mutex.unlockShared();
+
+        if (self.map.get(key)) |obj| {
+            return obj.valueType;
+        }
+        return null;
     }
 
     // Gets a value by its key. It also acquires a lock.
     pub fn get(self: *Store, key: []const u8) ?ZedisObject {
+        self.mutex.lockShared();
+        defer self.mutex.unlockShared();
+
         if (self.map.get(key)) |obj| {
             return obj;
         } else {
             return null;
         }
+    }
+
+    // Gets a copy of the string value for thread safety
+    pub fn getString(self: *Store, allocator: std.mem.Allocator, key: []const u8) !?[]u8 {
+        self.mutex.lockShared();
+        defer self.mutex.unlockShared();
+
+        if (self.map.get(key)) |obj| {
+            switch (obj.value) {
+                .string => |str| return try allocator.dupe(u8, str),
+                .int => |i| return try std.fmt.allocPrint(allocator, "{d}", .{i}),
+            }
+        }
+        return null;
+    }
+
+    // Gets an integer value, converting from string if necessary
+    pub fn getInt(self: *Store, key: []const u8) !?i64 {
+        self.mutex.lockShared();
+        defer self.mutex.unlockShared();
+
+        if (self.map.get(key)) |obj| {
+            switch (obj.value) {
+                .int => |i| return i,
+                .string => |str| {
+                    return std.fmt.parseInt(i64, str, 10) catch error.NotAnInteger;
+                },
+            }
+        }
+        return null;
     }
 };

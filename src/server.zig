@@ -45,7 +45,11 @@ pub const Server = struct {
     // This function is executed for each connected client.
     // It creates a new Client instance and lets it handle the request/response cycle.
     fn handleConnection(self: *Server, conn: std.net.Server.Connection) !void {
-        var client = Client.init(self.allocator, conn, &self.store);
+        var client = Client.init(self.allocator, conn, &self.store) catch |err| {
+            std.log.err("Failed to initialize client: {s}", .{@errorName(err)});
+            conn.stream.close();
+            return;
+        };
         defer client.deinit();
         // log how long it took to handle the client
         const start_time = std.time.nanoTimestamp();
