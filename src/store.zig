@@ -1,10 +1,13 @@
 const std = @import("std");
 
+// pub const ValueType = enum { string, int };
+pub const ZedisObject = struct { valueType: type, value: []u8 };
+
 pub const Store = struct {
     allocator: std.mem.Allocator,
     // The HashMap stores string keys and string values.
     // We need to own the keys and values, so we allocate them.
-    map: std.StringHashMap([]u8),
+    map: std.StringHashMap(ZedisObject),
     // A mutex is crucial for preventing race conditions when multiple
     // clients try to access the store at the same time.
     mutex: std.Thread.Mutex,
@@ -13,7 +16,7 @@ pub const Store = struct {
     pub fn init(allocator: std.mem.Allocator) Store {
         return .{
             .allocator = allocator,
-            .map = std.StringHashMap([]u8).init(allocator),
+            .map = std.StringHashMap(ZedisObject).init(allocator),
             .mutex = .{},
         };
     }
@@ -45,14 +48,16 @@ pub const Store = struct {
         const value_copy = try self.allocator.dupe(u8, value);
         errdefer self.allocator.free(value_copy);
 
-        try self.map.put(key_copy, value_copy);
+        const zedisObject = ZedisObject{ .valueType = .string, .value = value_copy };
+        try self.map.put(key_copy, zedisObject);
     }
 
     // Gets a value by its key. It also acquires a lock.
     pub fn get(self: *Store, key: []const u8) ?[]const u8 {
-        self.mutex.lock();
-        defer self.mutex.unlock();
-
-        return self.map.get(key);
+        if (self.map.get(key)) |obj| {
+            return obj.value;
+        } else {
+            return null;
+        }
     }
 };

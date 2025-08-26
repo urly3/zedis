@@ -3,6 +3,7 @@ const Parser = @import("parser.zig").Parser;
 const Store = @import("store.zig").Store;
 const Command = @import("parser.zig").Command;
 const Value = @import("parser.zig").Value;
+const t_string = @import("./commands/t_string.zig");
 
 pub const Client = struct {
     allocator: std.mem.Allocator,
@@ -62,12 +63,25 @@ pub const Client = struct {
             try self.handleSet(command.args.items);
         } else if (std.ascii.eqlIgnoreCase(command_name, "GET")) {
             try self.handleGet(command.args.items);
+        } else if (std.ascii.eqlIgnoreCase(command_name, "QUIT")) {
+            // Client wants to close the connection
+            try self.writer.writeAll("+OK\r\n");
+            return self.connection.stream.close();
+        } else if (std.ascii.eqlIgnoreCase(command_name, "INCR")) {
+            try self.handleIncr(command.args.items);
         } else {
             try self.writeError("ERR unknown command");
         }
     }
 
     // --- Command Handlers ---
+
+    fn handleIncr(self: *Client, args: []const Value) !void {
+        if (args.len != 2) return try self.writeError("ERR wrong number of arguments for 'incr'");
+        const key = args[1].asSlice();
+        try t_string.incrDecr(self.store, key, 1);
+        try self.writer.writeAll("+OK\r\n");
+    }
 
     fn handlePing(self: *Client, args: []const Value) !void {
         if (args.len > 2) return try self.writeError("ERR wrong number of arguments for 'ping'");
