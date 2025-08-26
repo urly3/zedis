@@ -101,7 +101,6 @@ pub const Parser = struct {
                 if (err == error.EndOfStream and i == 0) return error.EndOfStream;
                 return err;
             };
-            std.debug.print("Received byte: {c}\n", .{b});
             switch (b) {
                 '\r' => {
                     const next = self.reader.readByte() catch |err| {
