@@ -1,6 +1,8 @@
 const std = @import("std");
 const Parser = @import("parser.zig").Parser;
-const Store = @import("store.zig").Store;
+const store_mod = @import("store.zig");
+const Store = store_mod.Store;
+const ZedisObject = store_mod.ZedisObject;
 const Command = @import("parser.zig").Command;
 const Value = @import("parser.zig").Value;
 const t_string = @import("./commands/t_string.zig");
@@ -64,11 +66,12 @@ pub const Client = struct {
         } else if (std.ascii.eqlIgnoreCase(command_name, "GET")) {
             try self.handleGet(command.args.items);
         } else if (std.ascii.eqlIgnoreCase(command_name, "QUIT")) {
-            // Client wants to close the connection
             try self.writer.writeAll("+OK\r\n");
             return self.connection.stream.close();
         } else if (std.ascii.eqlIgnoreCase(command_name, "INCR")) {
             try self.handleIncr(command.args.items);
+        } else if (std.ascii.eqlIgnoreCase(command_name, "DECR")) {
+            try self.handleDecr(command.args.items);
         } else {
             try self.writeError("ERR unknown command");
         }
@@ -80,6 +83,13 @@ pub const Client = struct {
         if (args.len != 2) return try self.writeError("ERR wrong number of arguments for 'incr'");
         const key = args[1].asSlice();
         try t_string.incrDecr(self.store, key, 1);
+        try self.writer.writeAll("+OK\r\n");
+    }
+
+    fn handleDecr(self: *Client, args: []const Value) !void {
+        if (args.len != 2) return try self.writeError("ERR wrong number of arguments for 'decr'");
+        const key = args[1].asSlice();
+        try t_string.incrDecr(self.store, key, -1);
         try self.writer.writeAll("+OK\r\n");
     }
 
@@ -110,7 +120,10 @@ pub const Client = struct {
         const key = args[1].asSlice();
         const value = self.store.get(key);
         if (value) |v| {
-            try self.writeBulkString(v);
+            switch (v.value) {
+                .string => |s| try self.writeBulkString(s),
+                .int => |i| try self.writeBulkString(try std.fmt.allocPrint(self.allocator, "{d}", .{i})),
+            }
         } else {
             try self.writeNull();
         }

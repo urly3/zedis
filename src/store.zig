@@ -1,7 +1,16 @@
 const std = @import("std");
 
-// pub const ValueType = enum { string, int };
-pub const ZedisObject = struct { valueType: type, value: []u8 };
+pub const ValueType = enum { string, int };
+
+pub const ZedisValue = union(ValueType) {
+    string: []u8,
+    int: i64,
+};
+
+pub const ZedisObject = struct {
+    valueType: ValueType,
+    value: ZedisValue,
+};
 
 pub const Store = struct {
     allocator: std.mem.Allocator,
@@ -26,7 +35,11 @@ pub const Store = struct {
         var it = self.map.iterator();
         while (it.next()) |entry| {
             self.allocator.free(entry.key_ptr.*);
-            self.allocator.free(entry.value_ptr.*);
+            // Only free string values since integers don't need freeing
+            switch (entry.value_ptr.*.value) {
+                .string => |str| self.allocator.free(str),
+                .int => {},
+            }
         }
         self.map.deinit();
     }
@@ -38,7 +51,10 @@ pub const Store = struct {
 
         // If the key already exists, we need to free the old value.
         if (self.map.get(key)) |old_value| {
-            self.allocator.free(old_value);
+            switch (old_value.value) {
+                .string => |str| self.allocator.free(str),
+                .int => {},
+            }
         }
 
         // We must allocate new memory for the key and value because the
@@ -48,14 +64,14 @@ pub const Store = struct {
         const value_copy = try self.allocator.dupe(u8, value);
         errdefer self.allocator.free(value_copy);
 
-        const zedisObject = ZedisObject{ .valueType = .string, .value = value_copy };
+        const zedisObject = ZedisObject{ .valueType = .string, .value = .{ .string = value_copy } };
         try self.map.put(key_copy, zedisObject);
     }
 
     // Gets a value by its key. It also acquires a lock.
-    pub fn get(self: *Store, key: []const u8) ?[]const u8 {
+    pub fn get(self: *Store, key: []const u8) ?ZedisObject {
         if (self.map.get(key)) |obj| {
-            return obj.value;
+            return obj;
         } else {
             return null;
         }
