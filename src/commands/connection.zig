@@ -9,7 +9,7 @@ pub fn ping(client: *Client, args: []const Value) !void {
     }
 
     if (args.len == 1) {
-        try client.writer.writeAll("+PONG\r\n");
+        _ = try client.connection.stream.write("+PONG\r\n");
     } else {
         try client.writeBulkString(args[1].asSlice());
     }
@@ -26,7 +26,7 @@ pub fn echo(client: *Client, args: []const Value) !void {
 // QUIT command implementation
 pub fn quit(client: *Client, args: []const Value) !void {
     _ = args; // Unused parameter
-    try client.writer.writeAll("+OK\r\n");
+    _ = try client.connection.stream.write("+OK\r\n");
     client.connection.stream.close();
 }
 

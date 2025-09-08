@@ -21,7 +21,7 @@ pub fn set(client: *Client, args: []const Value) !void {
     const value = args[2].asSlice();
 
     try client.store.set(key, value);
-    try client.writer.writeAll("+OK\r\n");
+    _ = try client.connection.stream.write("+OK\r\n");
 }
 
 // GET command implementation

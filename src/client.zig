@@ -6,6 +6,7 @@ const ZedisObject = store_mod.ZedisObject;
 const Command = @import("parser.zig").Command;
 const Value = @import("parser.zig").Value;
 const t_string = @import("./commands/t_string.zig");
+const rdb = @import("./commands//rdb.zig");
 const connection_commands = @import("./commands/connection.zig");
 const CommandRegistry = @import("./commands/registry.zig").CommandRegistry;
 const CommandInfo = @import("./commands/registry.zig").CommandInfo;
@@ -13,8 +14,6 @@ const CommandInfo = @import("./commands/registry.zig").CommandInfo;
 pub const Client = struct {
     allocator: std.mem.Allocator,
     connection: std.net.Server.Connection,
-    reader: std.net.Stream.Reader,
-    writer: std.net.Stream.Writer,
     store: *Store,
     command_registry: CommandRegistry,
 
@@ -87,11 +86,17 @@ pub const Client = struct {
             .description = "Show help message",
         });
 
+        try registry.register(.{
+            .name = "SAVE",
+            .handler = rdb.save,
+            .min_args = 1,
+            .max_args = 1,
+            .description = "The SAVE commands performs a synchronous save of the dataset producing a point in time snapshot of all the data inside the Redis instance, in the form of an RDB file.",
+        });
+
         return .{
             .allocator = allocator,
             .connection = connection,
-            .reader = connection.stream.reader(),
-            .writer = connection.stream.writer(),
             .store = store,
             .command_registry = registry,
         };
@@ -107,7 +112,7 @@ pub const Client = struct {
     pub fn handle(self: *Client) !void {
         while (true) {
             // Parse the incoming command from the client's stream.
-            var parser = Parser.init(self.allocator, self.reader);
+            var parser = Parser.init(self.allocator, self.connection.stream);
             var command = parser.parse() catch |err| {
                 // If there's an error (like a closed connection), we stop handling this client.
                 if (err == error.EndOfStream) return;
@@ -130,18 +135,24 @@ pub const Client = struct {
     // --- RESP Writing Helpers ---
 
     pub fn writeError(self: *Client, msg: []const u8) !void {
-        try self.writer.print("-{s}\r\n", .{msg});
+        const formatted = try std.fmt.allocPrint(self.allocator, "-{s}\r\n", .{msg});
+        defer self.allocator.free(formatted);
+        _ = try self.connection.stream.write(formatted);
     }
 
     pub fn writeBulkString(self: *Client, str: []const u8) !void {
-        try self.writer.print("${d}\r\n{s}\r\n", .{ str.len, str });
+        const formatted = try std.fmt.allocPrint(self.allocator, "${d}\r\n{s}\r\n", .{ str.len, str });
+        defer self.allocator.free(formatted);
+        _ = try self.connection.stream.write(formatted);
     }
 
     pub fn writeInt(self: *Client, value: i64) !void {
-        try self.writer.print(":{d}\r\n", .{value});
+        const formatted = try std.fmt.allocPrint(self.allocator, ":{d}\r\n", .{value});
+        defer self.allocator.free(formatted);
+        _ = try self.connection.stream.write(formatted);
     }
 
     pub fn writeNull(self: *Client) !void {
-        try self.writer.writeAll("$-1\r\n");
+        _ = try self.connection.stream.write("$-1\r\n");
     }
 };

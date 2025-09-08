@@ -14,29 +14,29 @@ pub const Command = struct {
     args: std.ArrayList(Value),
     allocator: std.mem.Allocator,
 
-    pub fn init(allocator: std.mem.Allocator) !Command {
+    pub fn init(allocator: std.mem.Allocator) Command {
         return Command{
-            .args = std.ArrayList(Value).init(allocator),
+            .args = std.ArrayList(Value){},
             .allocator = allocator,
         };
     }
 
     pub fn deinit(self: *Command) void {
-        self.args.clearAndFree();
+        self.args.clearAndFree(self.allocator);
     }
 
-    pub fn append(self: *Command, value: Value) !void {
-        try self.args.append(value);
+    pub fn addArg(self: *Command, value: Value) !void {
+        try self.args.append(self.allocator, value);
     }
 };
 
 pub const Parser = struct {
     allocator: std.mem.Allocator,
-    reader: std.net.Stream.Reader,
+    stream: std.net.Stream,
     line_buf: [1024 * 2]u8 = undefined,
 
-    pub fn init(allocator: std.mem.Allocator, reader: std.net.Stream.Reader) Parser {
-        return .{ .allocator = allocator, .reader = reader };
+    pub fn init(allocator: std.mem.Allocator, stream: std.net.Stream) Parser {
+        return .{ .allocator = allocator, .stream = stream };
     }
 
     // Main parsing function. It expects a command to be a RESP array of bulk strings:
@@ -47,31 +47,28 @@ pub const Parser = struct {
             return error.InvalidProtocol;
         }
 
-        const num_args = try std.fmt.parseInt(usize, line[1..], 10);
-        var command = try Command.init(self.allocator);
-        errdefer command.deinit();
+        const count = std.fmt.parseInt(usize, line[1..], 10) catch return error.InvalidProtocol;
+        var command = Command.init(self.allocator);
 
-        var i: usize = 0;
-        while (i < num_args) : (i += 1) {
-            const value = try self.parseValue();
-            try command.append(value);
+        for (0..count) |_| {
+            const bulk_line = try self.readLine();
+            if (bulk_line.len == 0 or bulk_line[0] != '$') {
+                return error.InvalidProtocol;
+            }
+
+            const data = try self.readBulkData(bulk_line);
+            try command.addArg(.{ .data = data });
         }
 
         return command;
     }
 
-    // Parses a single RESP value, currently only handling bulk strings ($)
-    // Future RESP types (Simple Strings '+', Errors '-', Integers ':', Arrays '*') can be added here.
-    fn parseValue(self: *Parser) !Value {
-        const line = try self.readLine();
-        if (line.len == 0 or line[0] != '$') {
-            return error.InvalidProtocol;
-        }
+    // Reads bulk string data based on the length specified in the bulk_line.
+    fn readBulkData(self: *Parser, bulk_line: []const u8) ![]const u8 {
+        const len = std.fmt.parseInt(i64, bulk_line[1..], 10) catch return error.InvalidProtocol;
 
-        const len = try std.fmt.parseInt(isize, line[1..], 10);
         if (len < 0) {
-            // This represents a null bulk string. We'll treat it as empty.
-            return Value{ .data = "" };
+            return error.InvalidProtocol; // Null bulk strings not supported in this example
         }
 
         const ulen: usize = @intCast(len);
@@ -80,37 +77,43 @@ pub const Parser = struct {
 
         var read_total: usize = 0;
         while (read_total < ulen) {
-            const n = try self.reader.read(data[read_total..]);
+            const n = try self.stream.read(data[read_total..]);
             if (n == 0) return error.EndOfStream;
             read_total += n;
         }
 
         // Expect trailing CRLF after the bulk string payload
         var crlf: [2]u8 = undefined;
-        try self.reader.readNoEof(&crlf);
-        if (crlf[0] != '\r' or crlf[1] != '\n') return error.InvalidProtocol;
+        _ = try self.stream.read(&crlf);
+        if (crlf[0] != '\r' or crlf[1] != '\n') {
+            return error.InvalidProtocol;
+        }
 
-        return Value{ .data = data };
+        return data;
     }
 
     // Reads a RESP line terminated by CRLF. Returns slice of internal buffer (valid until next call).
     fn readLine(self: *Parser) ![]const u8 {
         var i: usize = 0;
         while (true) {
-            const b = self.reader.readByte() catch |err| {
-                if (err == error.EndOfStream and i == 0) return error.EndOfStream;
-                return err;
-            };
+            var b_buf: [1]u8 = undefined;
+            const bytes_read = try self.stream.read(&b_buf);
+            if (bytes_read == 0) {
+                if (i == 0) return error.EndOfStream;
+                return error.InvalidProtocol;
+            }
+            const b = b_buf[0];
             switch (b) {
                 '\r' => {
-                    const next = self.reader.readByte() catch |err| {
+                    var next_buf: [1]u8 = undefined;
+                    const next_bytes_read = self.stream.read(&next_buf) catch |err| {
                         if (err == error.EndOfStream) return error.InvalidProtocol; // incomplete CRLF
                         return err;
                     };
-                    if (next != '\n') return error.InvalidProtocol;
+                    if (next_bytes_read == 0) return error.InvalidProtocol;
+                    if (next_buf[0] != '\n') return error.InvalidProtocol;
                     return self.line_buf[0..i];
                 },
-                '\n' => return error.InvalidProtocol, // bare LF not allowed
                 else => {
                     if (i >= self.line_buf.len) return error.LineTooLong;
                     self.line_buf[i] = b;

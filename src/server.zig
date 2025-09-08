@@ -32,7 +32,6 @@ pub const Server = struct {
     pub fn listen(self: *Server) !void {
         while (true) {
             const conn = try self.listener.accept();
-            std.log.info("Accepted connection from: {}", .{conn.address});
 
             // async call to handle the client connection concurrently
             self.handleConnection(conn) catch |err| {

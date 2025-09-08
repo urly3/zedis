@@ -16,7 +16,7 @@ A Redis-compatible in-memory data store written in [Zig](https://ziglang.org/), 
 
 ### Prerequisites
 
-- [Zig](https://ziglang.org/download/) (minimum version 0.14.1)
+- [Zig](https://ziglang.org/download/) (minimum version 0.15.1)
 
 ### Building and Running
 
@@ -159,7 +159,8 @@ Current limitations (contributions welcome!):
 
 ## Roadmap 🗺️
 
-- [ ] Add persistence (RDB snapshots)
+- [ ] Add [RDB snapshots](https://rdb.fnordig.de/file_format.html#string-encoding) (WIP)
+- [ ] Implement AOF (Append Only File) logging
 - [ ] Implement more Redis commands
 - [ ] Add support for lists and sets
 - [ ] Implement pub/sub functionality
