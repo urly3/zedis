@@ -13,24 +13,5 @@
       "stopOnEntry": false,
       "terminal": "integrated"
     },
-    {
-      "name": "Debug zedis (with args)",
-      "type": "lldb",
-      "request": "launch",
-      "program": "${workspaceFolder}/zig-out/bin/zedis",
-      "args": ["${input:programArgs}"],
-      "cwd": "${workspaceFolder}",
-      "preLaunchTask": "zig build",
-      "stopOnEntry": false,
-      "terminal": "integrated"
-    }
-  ],
-  "inputs": [
-    {
-      "id": "programArgs",
-      "type": "promptString",
-      "description": "Arguments to pass to zedis (space separated)",
-      "default": ""
-    }
   ]
 }

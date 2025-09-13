@@ -62,7 +62,7 @@ pub const Store = struct {
     }
 
     // Sets a key-value pair with a string value. It acquires a lock to ensure thread safety.
-    pub fn set(self: *Store, key: []const u8, value: []const u8) !void {
+    pub fn setString(self: *Store, key: []const u8, value: []const u8) !void {
         const zedis_object = ZedisObject{ .valueType = .string, .value = .{ .string = undefined } };
         try self.setObject(key, zedis_object, value);
     }

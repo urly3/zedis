@@ -20,7 +20,14 @@ pub fn set(client: *Client, args: []const Value) !void {
     const key = args[1].asSlice();
     const value = args[2].asSlice();
 
-    try client.store.set(key, value);
+    const maybe_int = std.fmt.parseInt(i64, value, 10);
+
+    if (maybe_int) |int_value| {
+        try client.store.setInt(key, int_value);
+    } else |_| {
+        try client.store.setString(key, value);
+    }
+
     _ = try client.connection.stream.write("+OK\r\n");
 }
 

@@ -87,10 +87,10 @@ pub const ZDB_Writer = struct {
 
         // const now_timestamp = std.time.timestamp();
         // try self.writeMetadata("ctime", .{ .int = now_timestamp });
-        try self.writeMetadata("ctime", .{ .int = 1757786751 });
+        try self.writeMetadata("ctime", .{ .int = 1757785281 });
 
         // TODO
-        try self.writeMetadata("used-mem", .{ .int = 898736 });
+        try self.writeMetadata("used-mem", .{ .int = 874160 });
 
         // TODO
         try self.writeMetadata("aof-base", .{ .int = 0 });
@@ -104,44 +104,23 @@ pub const ZDB_Writer = struct {
     }
 
     fn writeCache(self: *ZDB_Writer) !void {
-        // var it = self.store.map.iterator();
-        // while (it.next()) |entry| {
-        //     if (entry.value_ptr.*.expiry) |expiry| {
-        //         try self.writer.writeByte(OPCODE_EXPIRE_TIME_MS);
-        //         try self.writer.writeInt(u64, expiry, .little);
-        //     }
+        var it = self.store.map.iterator();
+        while (it.next()) |entry| {
+            if (entry.value_ptr.*.expiry) |expiry| {
+                try self.writer.writeByte(OPCODE_EXPIRE_TIME_MS);
+                try self.writer.writeInt(u64, expiry, .little);
+            }
 
-        //     const typeOpCode = entry.value_ptr.valueType.toRdbOpcode();
-        //     try self.writer.writeByte(typeOpCode);
+            const typeOpCode = entry.value_ptr.valueType.toRdbOpcode();
+            try self.writer.writeByte(typeOpCode);
 
-        //     try self.writeRdbString(entry.key_ptr.*);
+            try self.writeRdbString(entry.key_ptr.*);
 
-        //     switch (entry.value_ptr.*.value) {
-        //         .int => |i| try self.writeRdbInteger(i),
-        //         .string => |s| try self.writeRdbString(s),
-        //     }
-        // }
-
-        const key2 = self.store.get("key2");
-        const typeOpCode = key2.?.valueType.toRdbOpcode();
-        try self.writer.writeByte(typeOpCode);
-
-        try self.writeRdbString("key2");
-        try self.writeRdbInteger(key2.?.value.int);
-
-        const key3 = self.store.get("key3");
-        const typeOpCode3 = key3.?.valueType.toRdbOpcode();
-        try self.writer.writeByte(typeOpCode3);
-
-        try self.writeRdbString("key3");
-        try self.writeRdbString(key3.?.value.string);
-
-        const key1 = self.store.get("key1");
-        const typeOpCode1 = key1.?.valueType.toRdbOpcode();
-        try self.writer.writeByte(typeOpCode1);
-
-        try self.writeRdbString("key1");
-        try self.writeRdbString(key1.?.value.string);
+            switch (entry.value_ptr.*.value) {
+                .int => |i| try self.writeRdbInteger(i),
+                .string => |s| try self.writeRdbString(s),
+            }
+        }
     }
 
     fn writeRdbLength(self: *ZDB_Writer, len: u64) !void {
@@ -167,23 +146,27 @@ pub const ZDB_Writer = struct {
     }
 
     fn writeRdbInteger(self: *ZDB_Writer, number: i64) !void {
-        if (number >= std.math.minInt(i8) and number <= std.math.maxInt(i8)) {
-            // Can fit in i8
-            try self.writer.writeByte(0xC0);
-            try self.writer.writeInt(i8, @intCast(number), .little);
-        } else if (number >= std.math.minInt(i16) and number <= std.math.maxInt(i16)) {
-            // Can fit in i16
-            try self.writer.writeByte(0xC1);
-            try self.writer.writeInt(i16, @intCast(number), .little);
-        } else if (number >= std.math.minInt(i32) and number <= std.math.maxInt(i32)) {
-            // Can fit in i32
-            try self.writer.writeByte(0xC2);
-            try self.writer.writeInt(i32, @intCast(number), .little);
-        } else {
-            // Fallback for larger numbers (i64) or any number that doesn't fit
-            // the above: write as a length-prefixed string.
-            var buf: [20]u8 = undefined;
+        if (number < 0) {
+            var buf: [20]u8 = undefined; // Buffer for the string representation.
             const str = try std.fmt.bufPrint(&buf, "{}", .{number});
+            try self.writeRdbString(str);
+            return;
+        }
+        const positive_number: u64 = @intCast(number);
+
+        if (positive_number <= 127) { // Can fit in i8
+            try self.writer.writeByte(0b11000000); // 0xC0
+            try self.writer.writeInt(i8, @intCast(positive_number), .little);
+        } else if (positive_number <= 32767) { // Can fit in i16
+            try self.writer.writeByte(0b11000001); // 0xC1
+            try self.writer.writeInt(i16, @intCast(positive_number), .little);
+        } else if (positive_number <= 2147483647) { // Can fit in i32
+            try self.writer.writeByte(0b11000010); // 0xC2
+            try self.writer.writeInt(i32, @intCast(positive_number), .little);
+        } else {
+            // Fallback for larger numbers: write as a string.
+            var buf: [20]u8 = undefined;
+            const str = try std.fmt.bufPrint(&buf, "{}", .{positive_number});
             try self.writeRdbString(str);
         }
     }
