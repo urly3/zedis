@@ -67,8 +67,12 @@ pub const CommandRegistry = struct {
                 }
             }
 
-            // Execute the command
-            try cmd_info.handler(client, args);
+            cmd_info.handler(client, args) catch |err| {
+                std.log.err("Handler for command '{s}' failed with error: {s}", .{
+                    cmd_info.name,
+                    @errorName(err),
+                });
+            };
         } else {
             return client.writeError("ERR unknown command");
         }

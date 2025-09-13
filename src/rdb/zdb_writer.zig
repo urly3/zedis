@@ -5,7 +5,7 @@ const CRC64 = @import("./checksum.zig").CRC64;
 pub const RdbWriteError = error{ StringTooLarge, NumberTooLarge };
 
 const WriteType = union(enum) {
-    int: u64,
+    int: i64,
     string: []const u8,
 };
 
@@ -16,14 +16,14 @@ const OPCODE_EXPIRE_TIME = 0xFD;
 const OPCODE_SELECT_DB = 0xFE;
 const OPCODE_EOF = 0xFF;
 
-pub const ZDB = struct {
+pub const ZDB_Writer = struct {
     allocator: std.mem.Allocator,
     store: *Store,
     buffer: *[1024]u8,
     writer: std.Io.Writer,
     file: std.fs.File,
 
-    pub fn init(allocator: std.mem.Allocator, store: *Store, fileName: []const u8) !ZDB {
+    pub fn init(allocator: std.mem.Allocator, store: *Store, fileName: []const u8) !ZDB_Writer {
         std.fs.cwd().deleteFile(fileName) catch |err| switch (err) {
             error.FileNotFound => {},
             else => return err,
@@ -41,18 +41,21 @@ pub const ZDB = struct {
         };
     }
 
-    pub fn deinit(self: *ZDB) void {
+    pub fn deinit(self: *ZDB_Writer) void {
+        _ = self.writer.flush() catch {};
         self.file.close();
         self.allocator.destroy(self.buffer);
     }
 
-    pub fn writeFile(self: *ZDB) !void {
+    pub fn writeFile(self: *ZDB_Writer) !void {
         try self.writeHeader();
-        try self.writeHeader();
+        try self.writeCache();
+        try self.writeEndOfFile();
+
         try self.writer.flush();
     }
 
-    fn writeHeader(self: *ZDB) !void {
+    fn writeHeader(self: *ZDB_Writer) !void {
         try self.writeAuxFields();
 
         try self.writer.writeByte(OPCODE_SELECT_DB);
@@ -64,15 +67,16 @@ pub const ZDB = struct {
         try self.writeRdbLength(0);
     }
 
-    fn writeEndOfFile(self: *ZDB) !void {
+    fn writeEndOfFile(self: *ZDB_Writer) !void {
         try self.writer.writeByte(OPCODE_EOF);
-        // TODO
-        // const buffer = self.file.read
-        // const checksum = CRC64.checksum(buffer);
-        // try self.writer.writeInt(u64, checksum, .little);
+        // TODO Fix this
+        const file_content = self.writer.buffered();
+        const checksum = CRC64.checksum(file_content);
+
+        try self.writer.writeInt(u64, checksum, .little);
     }
 
-    fn writeAuxFields(self: *ZDB) !void {
+    fn writeAuxFields(self: *ZDB_Writer) !void {
         _ = try self.writer.write("REDIS");
         _ = try self.writer.write("0012");
 
@@ -81,36 +85,36 @@ pub const ZDB = struct {
         const bits = if (@sizeOf(usize) == 8) 64 else 32;
         try self.writeMetadata("redis-bits", .{ .int = bits });
 
-        const now_timestamp: u64 = @intCast(std.time.timestamp());
+        const now_timestamp = std.time.timestamp();
         try self.writeMetadata("ctime", .{ .int = now_timestamp });
 
+        // TODO
         try self.writeMetadata("used-mem", .{ .int = 100 });
+
+        // TODO
+        try self.writeMetadata("aof-base", .{ .int = 0 });
     }
 
-    fn writeMetadata(self: *ZDB, key: []const u8, value: WriteType) !void {
+    fn writeMetadata(self: *ZDB_Writer, key: []const u8, value: WriteType) !void {
         // 0xFA indicates auxiliary field; we encode key then value as length-prefixed strings.
         try self.writer.writeByte(0xFA);
         try self.genericWrite(.{ .string = key });
         try self.genericWrite(value);
     }
 
-    fn writeCache(self: *ZDB) !void {
+    fn writeCache(self: *ZDB_Writer) !void {
         var it = self.store.map.iterator();
         while (it.next()) |entry| {
-            // Write the expiry FIRST (if it exists).
             if (entry.value_ptr.*.expiry) |expiry| {
                 try self.writer.writeByte(OPCODE_EXPIRE_TIME_MS);
                 try self.writer.writeInt(u64, expiry, .little);
             }
 
-            // Write the value type opcode.
             const typeOpCode = entry.value_ptr.valueType.toRdbOpcode();
             try self.writer.writeByte(typeOpCode);
 
-            // Write the key.
             try self.writeRdbString(entry.key_ptr.*);
 
-            // Write the value.
             switch (entry.value_ptr.*.value) {
                 .int => |i| try self.writeRdbInteger(i),
                 .string => |s| try self.writeRdbString(s),
@@ -118,7 +122,7 @@ pub const ZDB = struct {
         }
     }
 
-    fn writeRdbLength(self: *ZDB, len: u64) !void {
+    fn writeRdbLength(self: *ZDB_Writer, len: u64) !void {
         if (len <= 63) { // 6-bit
             try self.writer.writeByte(@as(u8, @truncate(len)));
         } else if (len <= 16383) { // 14-bit
@@ -135,30 +139,38 @@ pub const ZDB = struct {
         }
     }
 
-    fn writeRdbString(self: *ZDB, str: []const u8) !void {
+    fn writeRdbString(self: *ZDB_Writer, str: []const u8) !void {
         try self.writeRdbLength(str.len);
         try self.writer.writeAll(str);
     }
 
-    fn writeRdbInteger(self: *ZDB, number: u64) !void {
-        if (number <= 127) { // Can fit in i8
+    fn writeRdbInteger(self: *ZDB_Writer, number: i64) !void {
+        if (number < 0) {
+            var buf: [20]u8 = undefined; // Buffer for the string representation.
+            const str = try std.fmt.bufPrint(&buf, "{}", .{number});
+            try self.writeRdbString(str);
+            return;
+        }
+        const positive_number: u64 = @intCast(number);
+
+        if (positive_number <= 127) { // Can fit in i8
             try self.writer.writeByte(0b11000000); // 0xC0
-            try self.writer.writeInt(i8, @intCast(number), .little);
-        } else if (number <= 32767) { // Can fit in i16
+            try self.writer.writeInt(i8, @intCast(positive_number), .little);
+        } else if (positive_number <= 32767) { // Can fit in i16
             try self.writer.writeByte(0b11000001); // 0xC1
-            try self.writer.writeInt(i16, @intCast(number), .little);
-        } else if (number <= 2147483647) { // Can fit in i32
+            try self.writer.writeInt(i16, @intCast(positive_number), .little);
+        } else if (positive_number <= 2147483647) { // Can fit in i32
             try self.writer.writeByte(0b11000010); // 0xC2
-            try self.writer.writeInt(i32, @intCast(number), .little);
+            try self.writer.writeInt(i32, @intCast(positive_number), .little);
         } else {
             // Fallback for larger numbers: write as a string.
             var buf: [20]u8 = undefined;
-            const str = try std.fmt.bufPrint(&buf, "{}", .{number});
+            const str = try std.fmt.bufPrint(&buf, "{}", .{positive_number});
             try self.writeRdbString(str);
         }
     }
 
-    fn genericWrite(self: *ZDB, payload: WriteType) !void {
+    fn genericWrite(self: *ZDB_Writer, payload: WriteType) !void {
         switch (payload) {
             .int => |number| try self.writeRdbInteger(number),
             .string => |str| try self.writeRdbString(str),
@@ -174,7 +186,7 @@ test "ZDB init and deinit" {
     var store = Store.init(allocator);
     const test_file = "test_db.rdb";
 
-    var zdb = try ZDB.init(allocator, &store, test_file);
+    var zdb = try ZDB_Writer.init(allocator, &store, test_file);
     defer zdb.deinit();
     defer std.fs.cwd().deleteFile(test_file) catch {};
 
@@ -188,7 +200,7 @@ test "ZDB writeFile creates valid RDB header" {
     var store = Store.init(allocator);
     const test_file = "test_header.rdb";
 
-    var zdb = try ZDB.init(allocator, &store, test_file);
+    var zdb = try ZDB_Writer.init(allocator, &store, test_file);
     defer zdb.deinit();
     defer std.fs.cwd().deleteFile(test_file) catch {};
 
@@ -207,7 +219,7 @@ test "ZDB writeString writes correct format" {
     var store = Store.init(allocator);
     const test_file = "test_string.rdb";
 
-    var zdb = try ZDB.init(allocator, &store, test_file);
+    var zdb = try ZDB_Writer.init(allocator, &store, test_file);
     defer zdb.deinit();
     defer std.fs.cwd().deleteFile(test_file) catch {};
 
@@ -227,7 +239,7 @@ test "ZDB writeMetadata writes correct format" {
     var store = Store.init(allocator);
     const test_file = "test_string.rdb";
 
-    var zdb = try ZDB.init(allocator, &store, test_file);
+    var zdb = try ZDB_Writer.init(allocator, &store, test_file);
     defer zdb.deinit();
     defer std.fs.cwd().deleteFile(test_file) catch {};
 

@@ -3,16 +3,16 @@ const std = @import("std");
 pub const ValueType = enum {
     string,
     int,
-    list,
+    // list,
 
     pub fn toRdbOpcode(self: ValueType) u8 {
         const RDB_TYPE_STRING = 0x00;
-        const RDB_TYPE_LIST = 0x01;
+        // const RDB_TYPE_LIST = 0x01;
 
         return switch (self) {
             .string => RDB_TYPE_STRING,
             .int => RDB_TYPE_STRING,
-            .list => RDB_TYPE_LIST,
+            // .list => RDB_TYPE_LIST,
         };
     }
 };
@@ -20,7 +20,7 @@ pub const ValueType = enum {
 pub const ZedisValue = union(ValueType) {
     string: []u8,
     int: i64,
-    list: std.array_list,
+    // list: std.array_list,
 };
 
 pub const ZedisObject = struct { valueType: ValueType, value: ZedisValue, expiry: ?u64 = null };
@@ -52,7 +52,6 @@ pub const Store = struct {
             switch (entry.value_ptr.*.value) {
                 .string => |str| self.allocator.free(str),
                 .int => {},
-                else => {},
             }
         }
         self.map.deinit();
@@ -92,7 +91,6 @@ pub const Store = struct {
             switch (existing_entry.value) {
                 .string => |str| self.allocator.free(str),
                 .int => {},
-                else => {},
             }
         }
 
@@ -125,7 +123,6 @@ pub const Store = struct {
                 // Integer values don't need allocation
                 new_object.value = object.value;
             },
-            else => {},
         }
 
         // Update the entry
