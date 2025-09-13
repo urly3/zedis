@@ -9,19 +9,19 @@ const WriteType = union(enum) {
     string: []const u8,
 };
 
+const OPCODE_AUX = 0xFA;
+const OPCODE_RESIZE_DB = 0xFB;
+const OPCODE_EXPIRE_TIME_MS = 0xFC;
+const OPCODE_EXPIRE_TIME = 0xFD;
+const OPCODE_SELECT_DB = 0xFE;
+const OPCODE_EOF = 0xFF;
+
 pub const ZDB = struct {
     allocator: std.mem.Allocator,
     store: *Store,
     buffer: *[1024]u8,
     writer: std.Io.Writer,
     file: std.fs.File,
-
-    const OPCODE_AUX = 0xFA;
-    const OPCODE_RESIZE_DB = 0xFB;
-    const OPCODE_EXPIRE_TIME_MS = 0xFC;
-    const OPCODE_EXPIRE_TIME = 0xFD;
-    const OPCODE_SELECT_DB = 0xFE;
-    const OPCODE_EOF = 0xFF;
 
     pub fn init(allocator: std.mem.Allocator, store: *Store, fileName: []const u8) !ZDB {
         std.fs.cwd().deleteFile(fileName) catch |err| switch (err) {
@@ -48,6 +48,7 @@ pub const ZDB = struct {
 
     pub fn writeFile(self: *ZDB) !void {
         try self.writeHeader();
+        try self.writeHeader();
         try self.writer.flush();
     }
 
@@ -55,19 +56,20 @@ pub const ZDB = struct {
         try self.writeAuxFields();
 
         try self.writer.writeByte(OPCODE_SELECT_DB);
-        try self.writer.writeByte(0x00);
+        try self.writeRdbLength(0x00);
 
         try self.writer.writeByte(OPCODE_RESIZE_DB);
-        // Database hash table size (truncated to one byte for now)
-        try self.writer.writeByte(@intCast(@as(u8, @truncate(self.store.size()))));
-        // Expiry hash table size
-        // Set as 0 for now
-        try self.writer.writeByte(0x00);
+        try self.writeRdbLength(self.store.size());
+        // TODO Write the size of the expiry hash table
+        try self.writeRdbLength(0);
+    }
 
+    fn writeEndOfFile(self: *ZDB) !void {
         try self.writer.writeByte(OPCODE_EOF);
-        const buffer = self.writer.buffered();
-        const checksum = CRC64.checksum(buffer);
-        try self.writer.writeInt(u64, checksum, .little);
+        // TODO
+        // const buffer = self.file.read
+        // const checksum = CRC64.checksum(buffer);
+        // try self.writer.writeInt(u64, checksum, .little);
     }
 
     fn writeAuxFields(self: *ZDB) !void {
@@ -93,8 +95,27 @@ pub const ZDB = struct {
     }
 
     fn writeCache(self: *ZDB) !void {
-        // TODO
-        _ = self;
+        var it = self.store.map.iterator();
+        while (it.next()) |entry| {
+            // Write the expiry FIRST (if it exists).
+            if (entry.value_ptr.*.expiry) |expiry| {
+                try self.writer.writeByte(OPCODE_EXPIRE_TIME_MS);
+                try self.writer.writeInt(u64, expiry, .little);
+            }
+
+            // Write the value type opcode.
+            const typeOpCode = entry.value_ptr.valueType.toRdbOpcode();
+            try self.writer.writeByte(typeOpCode);
+
+            // Write the key.
+            try self.writeRdbString(entry.key_ptr.*);
+
+            // Write the value.
+            switch (entry.value_ptr.*.value) {
+                .int => |i| try self.writeRdbInteger(i),
+                .string => |s| try self.writeRdbString(s),
+            }
+        }
     }
 
     fn writeRdbLength(self: *ZDB, len: u64) !void {
