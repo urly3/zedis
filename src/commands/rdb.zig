@@ -4,7 +4,7 @@ const Store = store.Store;
 const ZedisObject = store.ZedisObject;
 const Client = @import("../client.zig").Client;
 const Value = @import("../parser.zig").Value;
-const ZDB = @import("../rdb/zdb.zig").ZDB;
+const ZDB = @import("../rdb/zdb.zig");
 
 pub fn save(client: *Client, args: []const Value) !void {
     _ = args;

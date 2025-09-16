@@ -1,13 +1,15 @@
 const std = @import("std");
 const Store = @import("../store.zig").Store;
 const CRC64 = @import("./checksum.zig").CRC64;
-
-pub const RdbWriteError = error{ StringTooLarge, NumberTooLarge };
+const fs = std.fs;
+const eql = std.mem.eql;
 
 const WriteType = union(enum) {
     int: i64,
     string: []const u8,
 };
+
+const DEFAULT_FILE_NAME = "test.rdb";
 
 const OPCODE_AUX = 0xFA;
 const OPCODE_RESIZE_DB = 0xFB;
@@ -16,164 +18,310 @@ const OPCODE_EXPIRE_TIME = 0xFD;
 const OPCODE_SELECT_DB = 0xFE;
 const OPCODE_EOF = 0xFF;
 
-pub const ZDB = struct {
-    pub const Writer = struct {
-        allocator: std.mem.Allocator,
-        buffer: *[1024]u8,
-        file: std.fs.File,
-        store: *Store,
-        writer: std.Io.Writer,
+const LEN_PREFIX_32_INT = 0b10000000;
+const LEN_PREFIX_64_INT = 0b10000001;
 
-        pub fn init(allocator: std.mem.Allocator, store: *Store, fileName: []const u8) !Writer {
-            std.fs.cwd().deleteFile(fileName) catch |err| switch (err) {
-                error.FileNotFound => {},
-                else => return err,
-            };
-            const file = try std.fs.cwd().createFile(fileName, .{ .truncate = true });
-            const buffer = try allocator.create([1024]u8);
-            const writer = file.writer(buffer);
+const INT_PREFIX_8_BITS = 0xC0;
+const INT_PREFIX_16_BITS = 0xC1;
+const INT_PREFIX_32_BITS = 0xC2;
 
-            return .{
-                .allocator = allocator,
-                .buffer = buffer,
-                .file = file,
-                .store = store,
-                .writer = writer.interface,
-            };
-        }
+pub const RdbWriteError = error{ StringTooLarge, NumberTooLarge };
 
-        pub fn deinit(self: *Writer) void {
-            _ = self.writer.flush() catch {};
-            self.file.close();
-            self.allocator.destroy(self.buffer);
-        }
+pub const Writer = struct {
+    allocator: std.mem.Allocator,
+    buffer: *[1024]u8,
+    file: std.fs.File,
+    store: *Store,
+    writer: std.Io.Writer,
 
-        pub fn writeFile(self: *Writer) !void {
-            try self.writeHeader();
-            try self.writeCache();
-            try self.writeEndOfFile();
+    pub fn init(allocator: std.mem.Allocator, store: *Store, fileName: []const u8) !Writer {
+        fs.cwd().deleteFile(fileName) catch |err| switch (err) {
+            error.FileNotFound => {},
+            else => return err,
+        };
+        const file = try std.fs.cwd().createFile(fileName, .{ .truncate = true });
+        const buffer = try allocator.create([1024]u8);
+        const writer = file.writer(buffer);
 
-            try self.writer.flush();
-        }
+        return .{
+            .allocator = allocator,
+            .buffer = buffer,
+            .file = file,
+            .store = store,
+            .writer = writer.interface,
+        };
+    }
 
-        fn writeHeader(self: *Writer) !void {
-            try self.writeAuxFields();
+    pub fn deinit(self: *Writer) void {
+        _ = self.writer.flush() catch {};
+        self.file.close();
+        self.allocator.destroy(self.buffer);
+    }
 
-            try self.writer.writeByte(OPCODE_SELECT_DB);
-            try self.writeRdbLength(0x00);
+    pub fn writeFile(self: *Writer) !void {
+        try self.writeHeader();
+        try self.writeCache();
+        try self.writeEndOfFile();
 
-            try self.writer.writeByte(OPCODE_RESIZE_DB);
-            try self.writeRdbLength(self.store.size());
-            // TODO Write the size of the expiry hash table
-            try self.writeRdbLength(0);
-        }
+        try self.writer.flush();
+    }
 
-        fn writeEndOfFile(self: *Writer) !void {
-            try self.writer.writeByte(OPCODE_EOF);
-            // TODO Fix this
-            const file_content = self.writer.buffered();
-            const checksum = CRC64.checksum(file_content);
+    fn writeHeader(self: *Writer) !void {
+        try self.writeAuxFields();
 
-            try self.writer.writeInt(u64, checksum, .little);
-        }
+        try self.writer.writeByte(OPCODE_SELECT_DB);
+        try self.writeLength(0x00);
 
-        fn writeAuxFields(self: *Writer) !void {
-            _ = try self.writer.write("REDIS");
-            _ = try self.writer.write("0012");
+        try self.writer.writeByte(OPCODE_RESIZE_DB);
+        try self.writeLength(self.store.size());
+        // TODO Write the size of the expiry hash table
+        try self.writeLength(0);
+    }
 
-            try self.writeMetadata("redis-ver", .{ .string = "255.255.255" });
+    fn writeEndOfFile(self: *Writer) !void {
+        try self.writer.writeByte(OPCODE_EOF);
+        // TODO Fix this
+        const file_content = self.writer.buffered();
+        const checksum = CRC64.checksum(file_content);
 
-            const bits = if (@sizeOf(usize) == 8) 64 else 32;
-            try self.writeMetadata("redis-bits", .{ .int = bits });
+        try self.writer.writeInt(u64, checksum, .little);
+    }
 
-            const now_timestamp = std.time.timestamp();
-            try self.writeMetadata("ctime", .{ .int = now_timestamp });
+    fn writeAuxFields(self: *Writer) !void {
+        _ = try self.writer.write("REDIS");
+        _ = try self.writer.write("0012");
 
-            // TODO
-            try self.writeMetadata("used-mem", .{ .int = 0 });
+        try self.writeMetadata("redis-ver", .{ .string = "255.255.255" });
 
-            // TODO
-            try self.writeMetadata("aof-base", .{ .int = 0 });
-        }
+        const bits = if (@sizeOf(usize) == 8) 64 else 32;
+        try self.writeMetadata("redis-bits", .{ .int = bits });
 
-        fn writeMetadata(self: *Writer, key: []const u8, value: WriteType) !void {
-            // 0xFA indicates auxiliary field; we encode key then value as length-prefixed strings.
-            try self.writer.writeByte(0xFA);
-            try self.genericWrite(.{ .string = key });
-            try self.genericWrite(value);
-        }
+        const now_timestamp = std.time.timestamp();
+        try self.writeMetadata("ctime", .{ .int = now_timestamp });
 
-        fn writeCache(self: *Writer) !void {
-            var it = self.store.map.iterator();
-            while (it.next()) |entry| {
-                if (entry.value_ptr.*.expiry) |expiry| {
-                    try self.writer.writeByte(OPCODE_EXPIRE_TIME_MS);
-                    try self.writer.writeInt(u64, expiry, .little);
-                }
+        // TODO
+        try self.writeMetadata("used-mem", .{ .int = 0 });
 
-                const typeOpCode = entry.value_ptr.valueType.toRdbOpcode();
-                try self.writer.writeByte(typeOpCode);
+        // TODO
+        try self.writeMetadata("aof-base", .{ .int = 0 });
+    }
 
-                try self.writeRdbString(entry.key_ptr.*);
+    fn writeMetadata(self: *Writer, key: []const u8, value: WriteType) !void {
+        // 0xFA indicates auxiliary field; we encode key then value as length-prefixed strings.
+        try self.writer.writeByte(0xFA);
+        try self.genericWrite(.{ .string = key });
+        try self.genericWrite(value);
+    }
 
-                switch (entry.value_ptr.*.value) {
-                    .int => |i| try self.writeRdbInteger(i),
-                    .string => |s| try self.writeRdbString(s),
-                }
+    fn writeCache(self: *Writer) !void {
+        var it = self.store.map.iterator();
+        while (it.next()) |entry| {
+            if (entry.value_ptr.*.expiry) |expiry| {
+                try self.writer.writeByte(OPCODE_EXPIRE_TIME_MS);
+                try self.writer.writeInt(u64, expiry, .little);
+            }
+
+            const typeOpCode = entry.value_ptr.valueType.toRdbOpcode();
+            try self.writer.writeByte(typeOpCode);
+
+            try self.writeString(entry.key_ptr.*);
+
+            switch (entry.value_ptr.*.value) {
+                .int => |i| try self.writeInt(i),
+                .string => |s| try self.writeString(s),
             }
         }
+    }
 
-        fn writeRdbLength(self: *Writer, len: u64) !void {
-            if (len <= 63) { // 6-bit
-                try self.writer.writeByte(@as(u8, @truncate(len)));
-            } else if (len <= 16383) { // 14-bit
-                const first_byte = 0b01000000 | @as(u8, @truncate(len >> 8));
-                const second_byte = @as(u8, @truncate(len));
-                try self.writer.writeByte(first_byte);
-                try self.writer.writeByte(second_byte);
-            } else if (len <= 0xFFFFFFFF) { // 32-bit
-                try self.writer.writeByte(0b10000000);
-                try self.writer.writeInt(u32, @intCast(len), .big);
-            } else { // 64-bit
-                try self.writer.writeByte(0b10000001);
-                try self.writer.writeInt(u64, len, .big);
+    fn writeLength(self: *Writer, len: u64) !void {
+        if (len <= 63) { // 6-bit
+            try self.writer.writeByte(@as(u8, @truncate(len)));
+        } else if (len <= 16383) { // 14-bit
+            const first_byte = 0b01000000 | @as(u8, @truncate(len >> 8));
+            const second_byte = @as(u8, @truncate(len));
+            try self.writer.writeByte(first_byte);
+            try self.writer.writeByte(second_byte);
+        } else if (len <= 0xFFFFFFFF) { // 32-bit
+            try self.writer.writeByte(LEN_PREFIX_32_INT);
+            try self.writer.writeInt(u32, @intCast(len), .big);
+        } else { // 64-bit
+            try self.writer.writeByte(LEN_PREFIX_64_INT);
+            try self.writer.writeInt(u64, len, .big);
+        }
+    }
+
+    fn writeString(self: *Writer, str: []const u8) !void {
+        try self.writeLength(str.len);
+        try self.writer.writeAll(str);
+    }
+
+    fn writeInt(self: *Writer, number: i64) !void {
+        if (number >= std.math.minInt(i8) and number <= std.math.maxInt(i8)) {
+            // Can fit in i8
+            try self.writer.writeByte(INT_PREFIX_8_BITS);
+            try self.writer.writeInt(i8, @intCast(number), .little);
+        } else if (number >= std.math.minInt(i16) and number <= std.math.maxInt(i16)) {
+            // Can fit in i16
+            try self.writer.writeByte(INT_PREFIX_16_BITS);
+            try self.writer.writeInt(i16, @intCast(number), .little);
+        } else if (number >= std.math.minInt(i32) and number <= std.math.maxInt(i32)) {
+            // Can fit in i32
+            try self.writer.writeByte(INT_PREFIX_32_BITS);
+            try self.writer.writeInt(i32, @intCast(number), .little);
+        } else {
+            // Fallback for larger numbers (i64) or any number that doesn't fit
+            // the above: write as a length-prefixed string.
+            var buf: [20]u8 = undefined;
+            const str = try std.fmt.bufPrint(&buf, "{}", .{number});
+            try self.writeString(str);
+        }
+    }
+
+    fn genericWrite(self: *Writer, payload: WriteType) !void {
+        switch (payload) {
+            .int => |number| try self.writeInt(number),
+            .string => |str| try self.writeString(str),
+        }
+    }
+};
+
+pub const Reader = struct {
+    allocator: std.mem.Allocator,
+    buffer: []u8,
+    file: std.fs.File,
+    reader: std.Io.Reader,
+    store: *Store,
+
+    const MAGIC_STRING = "REDIS";
+    const ReaderError = error{ MalformedRDB, UnknownLengthPrefix };
+
+    pub const RdbReaderOutput = struct { rdb_version: []u8, redis_version: []u8, redis_bits: u8, ctime: i64, used_mem: i64, aof_base: i64 };
+
+    pub fn init(allocator: std.mem.Allocator, store: *Store) !Reader {
+        const file = try fs.cwd().openFile(DEFAULT_FILE_NAME, .{ .mode = .read_only });
+
+        const buffer = try allocator.create([1024]u8);
+        const reader = file.reader(buffer);
+
+        return .{ .allocator = allocator, .buffer = buffer, .store = store, .file = file, .reader = reader };
+    }
+
+    pub fn rdbFileExists() bool {
+        fs.cwd().access(DEFAULT_FILE_NAME, .{}) catch {
+            return false;
+        };
+        return true;
+    }
+
+    pub fn deinit(self: *Reader) void {
+        self.allocator.free(self.buffer);
+        self.file.close();
+    }
+
+    pub fn readFile(self: Reader) !RdbReaderOutput {
+        const output: RdbReaderOutput = .{};
+        const reader = self.reader;
+        const magic_string = try reader.take(5);
+        assert(magic_string, MAGIC_STRING);
+
+        const rdb_version_str = try reader.take(4);
+        const rdb_version = std.fmt.parseInt(u16, rdb_version_str, 10) catch {
+            return ReaderError.MalformedRDB;
+        };
+        output.rdb_version = rdb_version;
+
+        while (true) {
+            const byte = try reader.takeByte();
+
+            switch (byte) {
+                OPCODE_AUX => {
+                    const key = self.readString();
+
+                    if (eql(u8, key, "redis-ver")) {
+                        output.rdb_version = try self.readString();
+                    } else if (eql(u8, key, "redis-bits")) {
+                        output.redis_bits = try self.readInt();
+                    } else if (eql(u8, key, "ctime")) {
+                        output.rdb_version = try self.readInt();
+                    } else if (eql(u8, key, "used-mem")) {
+                        output.rdb_version = try self.readInt();
+                    } else if (eql(u8, key, "aof-base")) {
+                        output.aof_base = try self.readInt();
+                    }
+                },
+                else => {},
             }
         }
+        return output;
+    }
 
-        fn writeRdbString(self: *Writer, str: []const u8) !void {
-            try self.writeRdbLength(str.len);
-            try self.writer.writeAll(str);
-        }
+    fn assert(incoming_byes: []u8, expected: []u8) !void {
+        std.debug.assert(std.mem.eql(u8, incoming_byes, expected));
+    }
 
-        fn writeRdbInteger(self: *Writer, number: i64) !void {
-            if (number >= std.math.minInt(i8) and number <= std.math.maxInt(i8)) {
-                // Can fit in i8
-                try self.writer.writeByte(0xC0);
-                try self.writer.writeInt(i8, @intCast(number), .little);
-            } else if (number >= std.math.minInt(i16) and number <= std.math.maxInt(i16)) {
-                // Can fit in i16
-                try self.writer.writeByte(0xC1);
-                try self.writer.writeInt(i16, @intCast(number), .little);
-            } else if (number >= std.math.minInt(i32) and number <= std.math.maxInt(i32)) {
-                // Can fit in i32
-                try self.writer.writeByte(0xC2);
-                try self.writer.writeInt(i32, @intCast(number), .little);
-            } else {
-                // Fallback for larger numbers (i64) or any number that doesn't fit
-                // the above: write as a length-prefixed string.
-                var buf: [20]u8 = undefined;
-                const str = try std.fmt.bufPrint(&buf, "{}", .{number});
-                try self.writeRdbString(str);
-            }
-        }
+    fn readLength(self: Reader) !usize {
+        const reader = self.reader;
+        const first_byte = try reader.takeByte();
 
-        fn genericWrite(self: *Writer, payload: WriteType) !void {
-            switch (payload) {
-                .int => |number| try self.writeRdbInteger(number),
-                .string => |str| try self.writeRdbString(str),
-            }
+        switch (first_byte) {
+            // Case 1: Bits are 00xxxxxx. The length IS the lower 6 bits.
+            0x00...0x3F => {
+                // The length is just the byte value itself (masked implicitly by the range).
+                return @as(u64, first_byte);
+            },
+            // Case 2: Bits are 01xxxxxx. Length is 14 bits.
+            // This is the range that matches your requirement.
+            0x40...0x7F => {
+                // The high 6 bits of the length are the lower 6 bits of this byte.
+                const high_part: u64 = @as(u64, first_byte & 0x3F);
+
+                // The low 8 bits of the length are the entire next byte.
+                const low_part: u64 = try reader.takeByte();
+
+                // Combine them: (high_bits << 8) | low_bits
+                return (high_part << 8) | low_part;
+            },
+            LEN_PREFIX_32_INT => {
+                return reader.takeInt(u32, .big);
+            },
+            LEN_PREFIX_64_INT => {
+                return try reader.takeInt(u64, .big);
+            },
+            else => return ReaderError.UnknownLengthPrefix,
         }
-    };
+    }
+
+    fn readInt(self: Reader) !i64 {
+        const reader = self.reader;
+        const first_byte = try reader.takeByte();
+        switch (first_byte) {
+            INT_PREFIX_8_BITS => {
+                return reader.takeInt(i8, .little);
+            },
+            INT_PREFIX_16_BITS => {
+                return reader.takeInt(i16, .little);
+            },
+            INT_PREFIX_32_BITS => {
+                return reader.takeInt(i32, .little);
+            },
+
+            else => {
+                const bytes = try self.readString();
+                return std.fmt.parseInt(i64, bytes, 10);
+            },
+        }
+    }
+
+    fn readString(self: Reader) !*[]u8 {
+        const len = try self.readLength();
+        return self.reader.takeArray(len);
+    }
+
+    fn genericRead(self: Reader) !void {
+        const first_byte = try self.reader.takeByte();
+
+        switch (first_byte) {}
+    }
 };
 
 const testing = std.testing;
@@ -184,7 +332,7 @@ test "ZDB init and deinit" {
     var store = Store.init(allocator);
     const test_file = "test_db.rdb";
 
-    var zdb = try ZDB.Writer.init(allocator, &store, test_file);
+    var zdb = try Writer.init(allocator, &store, test_file);
     defer zdb.deinit();
     defer std.fs.cwd().deleteFile(test_file) catch {};
 
@@ -198,7 +346,7 @@ test "ZDB writeFile creates valid RDB header" {
     var store = Store.init(allocator);
     const test_file = "test_header.rdb";
 
-    var zdb = try ZDB.Writer.init(allocator, &store, test_file);
+    var zdb = try Writer.init(allocator, &store, test_file);
     defer zdb.deinit();
     defer std.fs.cwd().deleteFile(test_file) catch {};
 
@@ -217,7 +365,7 @@ test "ZDB writeString writes correct format" {
     var store = Store.init(allocator);
     const test_file = "test_string.rdb";
 
-    var zdb = try ZDB.Writer.init(allocator, &store, test_file);
+    var zdb = try Writer.init(allocator, &store, test_file);
     defer zdb.deinit();
     defer std.fs.cwd().deleteFile(test_file) catch {};
 
@@ -237,7 +385,7 @@ test "ZDB writeMetadata writes correct format" {
     var store = Store.init(allocator);
     const test_file = "test_string.rdb";
 
-    var zdb = try ZDB.Writer.init(allocator, &store, test_file);
+    var zdb = try Writer.init(allocator, &store, test_file);
     defer zdb.deinit();
     defer std.fs.cwd().deleteFile(test_file) catch {};
 

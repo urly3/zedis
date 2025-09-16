@@ -1,6 +1,7 @@
 const std = @import("std");
 const Client = @import("client.zig").Client;
 const Store = @import("store.zig").Store;
+const Reader = @import("./rdb/zdb.zig").Reader;
 
 pub const Server = struct {
     allocator: std.mem.Allocator,
@@ -13,15 +14,26 @@ pub const Server = struct {
         const address = try std.net.Address.parseIp(host, port);
         const listener = try address.listen(.{ .reuse_address = true });
 
-        return Server{
+        const store = Store.init(allocator);
+
+        var server = Server{
             .allocator = allocator,
             .address = address,
             .listener = listener,
-            .store = Store.init(allocator),
+            .store = store,
         };
+
+        const file_exists = Reader.rdbFileExists();
+
+        if (file_exists) {
+            const reader = try Reader.init(allocator, &server.store);
+            const data = try reader.readFile();
+            std.log.debug("output rdb {any}", .{data});
+        }
+
+        return server;
     }
 
-    // Cleans up resources when the server is shut down.
     pub fn deinit(self: *Server) void {
         self.listener.deinit();
         self.store.deinit();
