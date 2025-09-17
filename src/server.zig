@@ -2,12 +2,17 @@ const std = @import("std");
 const Client = @import("client.zig").Client;
 const Store = @import("store.zig").Store;
 const Reader = @import("./rdb/zdb.zig").Reader;
+const time = std.time;
 
 pub const Server = struct {
     allocator: std.mem.Allocator,
     address: std.net.Address,
     listener: std.net.Server,
     store: Store,
+
+    // Metadata
+    redisVersion: ?[]u8 = undefined,
+    createdTime: i64,
 
     // Initializes the server, binding it to a specific host and port.
     pub fn init(allocator: std.mem.Allocator, host: []const u8, port: u16) !Server {
@@ -18,6 +23,14 @@ pub const Server = struct {
 
         const file_exists = Reader.rdbFileExists();
 
+        var server: Server = .{
+            .allocator = allocator,
+            .address = address,
+            .listener = listener,
+            .store = store,
+            .createdTime = time.timestamp(),
+        };
+
         if (file_exists) {
             const reader = try Reader.init(allocator, @constCast(&store));
             errdefer reader.deinit();
@@ -25,17 +38,13 @@ pub const Server = struct {
 
             if (reader.readFile()) |data| {
                 std.log.debug("output rdb {any}", .{data});
+                server.createdTime = data.ctime;
             } else |err| {
                 std.log.err("Failed to load rdb: {s}", .{@errorName(err)});
             }
         }
 
-        return .{
-            .allocator = allocator,
-            .address = address,
-            .listener = listener,
-            .store = store,
-        };
+        return server;
     }
 
     pub fn deinit(self: *Server) void {

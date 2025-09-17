@@ -211,7 +211,17 @@ pub const Reader = struct {
     const MAGIC_STRING = "REDIS";
     const ReaderError = error{ MalformedRDB, UnknownLengthPrefix };
 
-    pub const RdbReaderOutput = struct { rdb_version: ?[]u8, redis_version: ?[]u8, redis_bits: ?i64, ctime: ?i64, used_mem: ?i64, aof_base: ?i64, resize_db: u64, resize_db_expiration: u64, select_db: u64 };
+    pub const RdbReaderOutput = struct {
+        rdb_version: ?[]u8,
+        redis_version: ?[]u8,
+        redis_bits: ?i64,
+        ctime: i64,
+        used_mem: ?i64,
+        aof_base: ?i64,
+        resize_db: u64,
+        resize_db_expiration: u64,
+        select_db: u64,
+    };
 
     pub fn init(allocator: std.mem.Allocator, store: *Store) !Reader {
         const file = try fs.cwd().openFile(DEFAULT_FILE_NAME, .{});
