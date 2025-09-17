@@ -53,60 +53,6 @@ OK
 string
 ```
 
-## Supported Commands 📝
-
-### String Commands
-- `SET key value` - Set a key to hold a string value
-- `GET key` - Get the value of a key
-- `INCR key` - Increment the integer value of a key by one
-- `DECR key` - Decrement the integer value of a key by one
-- `INCRBY key increment` - Increment the integer value of a key by the given amount
-- `DECRBY key decrement` - Decrement the integer value of a key by the given amount
-
-### Generic Commands
-- `DEL key [key ...]` - Delete one or more keys
-- `EXISTS key [key ...]` - Check if keys exist
-- `TYPE key` - Determine the type stored at key
-
-### Connection Commands
-- `PING [message]` - Ping the server
-- `ECHO message` - Echo the given string
-
-## Architecture 🏗️
-
-Zedis is built with a modular architecture:
-
-```
-src/
-├── main.zig          # Entry point and server initialization
-├── server.zig        # TCP server and connection handling
-├── client.zig        # Client connection management
-├── store.zig         # Thread-safe in-memory data store
-├── parser.zig        # RESP protocol parser
-└── commands/         # Command implementations
-    ├── registry.zig  # Command registration and dispatch
-    ├── t_string.zig  # String type commands
-    └── connection.zig # Connection commands
-```
-
-### Key Components
-
-- **Server**: Manages TCP connections and spawns handlers for each client
-- **Store**: Thread-safe HashMap with read-write locks for concurrent access
-- **Parser**: Implements the Redis Serialization Protocol (RESP) for parsing client commands
-- **Command Registry**: Extensible command system for easy addition of new commands
-- **Client**: Handles individual client sessions and command execution
-
-## Performance 🚄
-
-Zedis is designed for high performance:
-
-- **Zero-copy parsing** where possible
-- **Efficient memory management** with arena allocators
-- **Read-write locks** for optimal concurrent read performance
-- **Minimal allocations** in hot paths
-- **Connection pooling** ready architecture
-
 ## Development 🛠️
 
 ### Project Structure
@@ -145,18 +91,6 @@ pub fn myCommand(client: *Client, args: []const Value) !void {
 }
 ```
 
-## Limitations ⚠️
-
-Current limitations (contributions welcome!):
-
-- **Persistence**: No disk persistence (memory-only)
-- **Clustering**: Single-node only
-- **Advanced Data Types**: No lists, sets, hashes, or sorted sets yet
-- **Pub/Sub**: No publish/subscribe functionality
-- **Lua Scripting**: No scripting support
-- **Transactions**: No multi-command transactions
-- **Memory Management**: No expiration or eviction policies
-
 ## Roadmap 🗺️
 
 - [ ] Add [RDB snapshots](https://rdb.fnordig.de/file_format.html#string-encoding) (WIP)
@@ -169,33 +103,12 @@ Current limitations (contributions welcome!):
 - [ ] Add clustering support
 - [ ] Performance benchmarking suite
 
-## Contributing 🤝
-
-Contributions are welcome! Here's how you can help:
-
-1. **Fork the repository**
-2. **Create a feature branch**: `git checkout -b feature/amazing-feature`
-3. **Make your changes** and add tests
-4. **Commit your changes**: `git commit -m 'Add amazing feature'`
-5. **Push to the branch**: `git push origin feature/amazing-feature`
-6. **Open a Pull Request**
-
 ### Code Style
 
 - Follow Zig's standard formatting (`zig fmt`)
 - Add comprehensive error handling
 - Include documentation comments for public APIs
 - Write tests for new functionality
-
-## License 📄
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgments 🙏
-
-- Inspired by the original [Redis](https://redis.io/) project
-- Built with the amazing [Zig](https://ziglang.org/) programming language
-- Thanks to the Zig community for excellent documentation and support
 
 ## Contact 📧
 

@@ -27,16 +27,12 @@ pub const Store = struct {
     // The HashMap stores string keys and string values.
     // We need to own the keys and values, so we allocate them.
     map: std.StringHashMap(ZedisObject),
-    // A mutex is crucial for preventing race conditions when multiple
-    // clients try to access the store at the same time.
-    mutex: std.Thread.RwLock,
 
     // Initializes the store.
     pub fn init(allocator: std.mem.Allocator) Store {
         return .{
             .allocator = allocator,
             .map = std.StringHashMap(ZedisObject).init(allocator),
-            .mutex = .{},
         };
     }
 
@@ -66,8 +62,8 @@ pub const Store = struct {
 
     // Sets a key-value pair with a ZedisObject. It acquires a lock to ensure thread safety.
     pub fn setObject(self: *Store, key: []const u8, object: ZedisObject) !void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        // self.mutex.lock();
+        // defer self.mutex.unlock();
 
         return self.setObjectUnsafe(key, object);
     }
@@ -159,8 +155,8 @@ pub const Store = struct {
 
     // Gets a value by its key. It also acquires a lock.
     pub fn get(self: *Store, key: []const u8) ?ZedisObject {
-        self.mutex.lockShared();
-        defer self.mutex.unlockShared();
+        // self.mutex.lockShared();
+        // defer self.mutex.unlockShared();
 
         if (self.map.get(key)) |obj| {
             return obj;
