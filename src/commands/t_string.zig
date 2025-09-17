@@ -11,12 +11,7 @@ pub const StringCommandError = error{
     KeyNotFound,
 };
 
-// SET command implementation
 pub fn set(client: *Client, args: []const Value) !void {
-    if (args.len != 3) {
-        return client.writeError("ERR wrong number of arguments for 'set'");
-    }
-
     const key = args[1].asSlice();
     const value = args[2].asSlice();
 
@@ -31,12 +26,7 @@ pub fn set(client: *Client, args: []const Value) !void {
     _ = try client.connection.stream.write("+OK\r\n");
 }
 
-// GET command implementation
 pub fn get(client: *Client, args: []const Value) !void {
-    if (args.len != 2) {
-        return client.writeError("ERR wrong number of arguments for 'get'");
-    }
-
     const key = args[1].asSlice();
     const value = client.store.get(key);
 
@@ -54,12 +44,7 @@ pub fn get(client: *Client, args: []const Value) !void {
     }
 }
 
-// INCR command implementation
 pub fn incr(client: *Client, args: []const Value) !void {
-    if (args.len != 2) {
-        return client.writeError("ERR wrong number of arguments for 'incr'");
-    }
-
     const key = args[1].asSlice();
     const new_value = incrDecr(client.store, key, 1) catch |err| switch (err) {
         StringCommandError.WrongType => {
@@ -85,10 +70,6 @@ pub fn incr(client: *Client, args: []const Value) !void {
 }
 
 pub fn decr(client: *Client, args: []const Value) !void {
-    if (args.len != 2) {
-        return client.writeError("ERR wrong number of arguments for 'decr'");
-    }
-
     const key = args[1].asSlice();
     const new_value = incrDecr(client.store, key, -1) catch |err| switch (err) {
         StringCommandError.WrongType => {
@@ -113,11 +94,7 @@ pub fn decr(client: *Client, args: []const Value) !void {
     try client.writeBulkString(result_str);
 }
 
-// Internal helper function for increment/decrement operations
-pub fn incrDecr(store_ptr: *Store, key: []const u8, value: i64) !i64 {
-    store_ptr.mutex.lock();
-    defer store_ptr.mutex.unlock();
-
+fn incrDecr(store_ptr: *Store, key: []const u8, value: i64) !i64 {
     const current_value = store_ptr.map.get(key);
     if (current_value) |v| {
         var new_value: i64 = undefined;
@@ -146,4 +123,17 @@ pub fn incrDecr(store_ptr: *Store, key: []const u8, value: i64) !i64 {
     } else {
         return StringCommandError.KeyNotFound;
     }
+}
+
+pub fn del(client: *Client, args: []const Value) !void {
+    var deleted: u32 = 0;
+    for (args[1..]) |key| {
+        if (client.store.delete(key.asSlice())) {
+            deleted += 1;
+        }
+    }
+
+    
+
+    try client.writeInt(deleted);
 }

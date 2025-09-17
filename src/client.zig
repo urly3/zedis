@@ -4,96 +4,17 @@ const store_mod = @import("store.zig");
 const Store = store_mod.Store;
 const ZedisObject = store_mod.ZedisObject;
 const Command = @import("parser.zig").Command;
-const Value = @import("parser.zig").Value;
-const t_string = @import("./commands/t_string.zig");
-const rdb = @import("./commands//rdb.zig");
-const connection_commands = @import("./commands/connection.zig");
 const CommandRegistry = @import("./commands/registry.zig").CommandRegistry;
-const CommandInfo = @import("./commands/registry.zig").CommandInfo;
+const Connection = std.net.Server.Connection;
 
 pub const Client = struct {
     allocator: std.mem.Allocator,
-    connection: std.net.Server.Connection,
+    connection: Connection,
     store: *Store,
-    command_registry: CommandRegistry,
+    command_registry: *CommandRegistry,
 
     // Initializes a new client handler.
-    pub fn init(allocator: std.mem.Allocator, connection: std.net.Server.Connection, store: *Store) !Client {
-        var registry = CommandRegistry.init(allocator);
-
-        // Register all commands
-        try registry.register(.{
-            .name = "PING",
-            .handler = connection_commands.ping,
-            .min_args = 1,
-            .max_args = 2,
-            .description = "Ping the server",
-        });
-
-        try registry.register(.{
-            .name = "ECHO",
-            .handler = connection_commands.echo,
-            .min_args = 2,
-            .max_args = 2,
-            .description = "Echo the given string",
-        });
-
-        try registry.register(.{
-            .name = "QUIT",
-            .handler = connection_commands.quit,
-            .min_args = 1,
-            .max_args = 1,
-            .description = "Close the connection",
-        });
-
-        try registry.register(.{
-            .name = "SET",
-            .handler = t_string.set,
-            .min_args = 3,
-            .max_args = 3,
-            .description = "Set string value of a key",
-        });
-
-        try registry.register(.{
-            .name = "GET",
-            .handler = t_string.get,
-            .min_args = 2,
-            .max_args = 2,
-            .description = "Get string value of a key",
-        });
-
-        try registry.register(.{
-            .name = "INCR",
-            .handler = t_string.incr,
-            .min_args = 2,
-            .max_args = 2,
-            .description = "Increment the value of a key",
-        });
-
-        try registry.register(.{
-            .name = "DECR",
-            .handler = t_string.decr,
-            .min_args = 2,
-            .max_args = 2,
-            .description = "Decrement the value of a key",
-        });
-
-        try registry.register(.{
-            .name = "HELP",
-            .handler = connection_commands.help,
-            .min_args = 1,
-            .max_args = 1,
-            .description = "Show help message",
-        });
-
-        try registry.register(.{
-            .name = "SAVE",
-            .handler = rdb.save,
-            .min_args = 1,
-            .max_args = 1,
-            .description = "The SAVE commands performs a synchronous save of the dataset producing a point in time snapshot of all the data inside the Redis instance, in the form of an RDB file.",
-        });
-
+    pub fn init(allocator: std.mem.Allocator, connection: Connection, store: *Store, registry: *CommandRegistry) !Client {
         return .{
             .allocator = allocator,
             .connection = connection,

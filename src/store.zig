@@ -119,11 +119,7 @@ pub const Store = struct {
 
     // Delete a key from the store
     pub fn delete(self: *Store, key: []const u8) bool {
-        self.mutex.lock();
-        defer self.mutex.unlock();
-
         if (self.map.fetchRemove(key)) |kv| {
-            // Free the key
             self.allocator.free(kv.key);
             // Free the value if it's a string
             switch (kv.value.value) {
@@ -137,16 +133,11 @@ pub const Store = struct {
 
     // Check if a key exists
     pub fn exists(self: *Store, key: []const u8) bool {
-        self.mutex.lockShared();
-        defer self.mutex.unlockShared();
         return self.map.contains(key);
     }
 
     // Get the type of a value
     pub fn getType(self: *Store, key: []const u8) ?ValueType {
-        self.mutex.lockShared();
-        defer self.mutex.unlockShared();
-
         if (self.map.get(key)) |obj| {
             return obj.valueType;
         }
@@ -155,9 +146,6 @@ pub const Store = struct {
 
     // Gets a value by its key. It also acquires a lock.
     pub fn get(self: *Store, key: []const u8) ?ZedisObject {
-        // self.mutex.lockShared();
-        // defer self.mutex.unlockShared();
-
         if (self.map.get(key)) |obj| {
             return obj;
         } else {
@@ -167,9 +155,6 @@ pub const Store = struct {
 
     // Gets a copy of the string value for thread safety
     pub fn getString(self: *Store, allocator: std.mem.Allocator, key: []const u8) !?[]u8 {
-        self.mutex.lockShared();
-        defer self.mutex.unlockShared();
-
         if (self.map.get(key)) |obj| {
             switch (obj.value) {
                 .string => |str| return try allocator.dupe(u8, str),
@@ -181,9 +166,6 @@ pub const Store = struct {
 
     // Gets an integer value, converting from string if necessary
     pub fn getInt(self: *Store, key: []const u8) !?i64 {
-        self.mutex.lockShared();
-        defer self.mutex.unlockShared();
-
         if (self.map.get(key)) |obj| {
             switch (obj.value) {
                 .int => |i| return i,
