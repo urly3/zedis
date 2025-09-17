@@ -122,7 +122,7 @@ pub fn incrDecr(store_ptr: *Store, key: []const u8, value: i64) !i64 {
     if (current_value) |v| {
         var new_value: i64 = undefined;
 
-        switch (v.valueType) {
+        switch (v.value) {
             .string => |_| {
                 const intValue = std.fmt.parseInt(i64, v.value.string, 10) catch {
                     return StringCommandError.ValueNotInteger;
@@ -139,8 +139,8 @@ pub fn incrDecr(store_ptr: *Store, key: []const u8, value: i64) !i64 {
         }
 
         // Use the unsafe method since we already have the lock
-        const int_object = ZedisObject{ .valueType = .int, .value = .{ .int = new_value } };
-        try store_ptr.setObjectUnsafe(key, int_object, null);
+        const int_object = ZedisObject{ .value = .{ .int = new_value } };
+        try store_ptr.setObjectUnsafe(key, int_object);
 
         return new_value;
     } else {

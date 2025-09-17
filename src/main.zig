@@ -10,10 +10,17 @@ pub fn main() !void {
     const port = 6379;
 
     // Create and start the server.
-    var redis_server = try server.Server.init(allocator, host, port);
-    defer redis_server.deinit();
+    if (server.Server.init(allocator, host, port)) |redis_server_const| {
+        var redis_server = @constCast(&redis_server_const);
+        defer redis_server.deinit();
+        errdefer redis_server.deinit();
 
-    std.log.info("Zig Redis server listening on {s}:{d}", .{ host, port });
+        std.log.info("Zig Redis server listening on {s}:{d}", .{ host, port });
 
-    try redis_server.listen();
+        redis_server.listen() catch |err| {
+            std.log.err("Error on server {any}", .{@errorName(err)});
+        };
+    } else |err| {
+        std.log.err("Error server init: {any}", .{@errorName(err)});
+    }
 }

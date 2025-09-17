@@ -1,13 +1,17 @@
 const std = @import("std");
-const Store = @import("../store.zig").Store;
 const CRC64 = @import("./checksum.zig").CRC64;
+const storeModule = @import("../store.zig");
+const ZedisObject = storeModule.ZedisObject;
+const Store = storeModule.Store;
+const ZedisValue = storeModule.ZedisValue;
+const ValueType = storeModule.ValueType;
 const fs = std.fs;
 const eql = std.mem.eql;
 
-const WriteType = union(enum) {
-    int: i64,
-    string: []const u8,
-};
+// const WriteType = union(enum) {
+//     int: i64,
+//     string: []const u8,
+// };
 
 const DEFAULT_FILE_NAME = "test.rdb";
 
@@ -25,6 +29,8 @@ const INT_PREFIX_8_BITS = 0xC0;
 const INT_PREFIX_16_BITS = 0xC1;
 const INT_PREFIX_32_BITS = 0xC2;
 
+const VALUE_TYPE_STR = 0x00;
+
 pub const RdbWriteError = error{ StringTooLarge, NumberTooLarge };
 
 pub const Writer = struct {
@@ -33,6 +39,14 @@ pub const Writer = struct {
     file: std.fs.File,
     store: *Store,
     writer: std.Io.Writer,
+
+    fn mapToOpCode(val: ZedisValue) u8 {
+        switch (val) {
+            .int, .string => {
+                return 0x00;
+            },
+        }
+    }
 
     pub fn init(allocator: std.mem.Allocator, store: *Store, fileName: []const u8) !Writer {
         fs.cwd().deleteFile(fileName) catch |err| switch (err) {
@@ -106,7 +120,7 @@ pub const Writer = struct {
         try self.writeMetadata("aof-base", .{ .int = 0 });
     }
 
-    fn writeMetadata(self: *Writer, key: []const u8, value: WriteType) !void {
+    fn writeMetadata(self: *Writer, key: []const u8, value: ZedisValue) !void {
         // 0xFA indicates auxiliary field; we encode key then value as length-prefixed strings.
         try self.writer.writeByte(0xFA);
         try self.genericWrite(.{ .string = key });
@@ -121,8 +135,10 @@ pub const Writer = struct {
                 try self.writer.writeInt(u64, expiry, .little);
             }
 
-            const typeOpCode = entry.value_ptr.valueType.toRdbOpcode();
-            try self.writer.writeByte(typeOpCode);
+            const value = entry.value_ptr.value;
+
+            const op_code = Writer.mapToOpCode(value);
+            try self.writer.writeByte(op_code);
 
             try self.writeString(entry.key_ptr.*);
 
@@ -177,7 +193,7 @@ pub const Writer = struct {
         }
     }
 
-    fn genericWrite(self: *Writer, payload: WriteType) !void {
+    fn genericWrite(self: *Writer, payload: ZedisValue) !void {
         switch (payload) {
             .int => |number| try self.writeInt(number),
             .string => |str| try self.writeString(str),
@@ -189,78 +205,119 @@ pub const Reader = struct {
     allocator: std.mem.Allocator,
     buffer: []u8,
     file: std.fs.File,
-    reader: std.Io.Reader,
+    reader: *std.Io.Reader,
     store: *Store,
 
     const MAGIC_STRING = "REDIS";
     const ReaderError = error{ MalformedRDB, UnknownLengthPrefix };
 
-    pub const RdbReaderOutput = struct { rdb_version: []u8, redis_version: []u8, redis_bits: u8, ctime: i64, used_mem: i64, aof_base: i64 };
+    pub const RdbReaderOutput = struct { rdb_version: ?[]u8, redis_version: ?[]u8, redis_bits: ?i64, ctime: ?i64, used_mem: ?i64, aof_base: ?i64, resize_db: u64, resize_db_expiration: u64, select_db: u64 };
 
     pub fn init(allocator: std.mem.Allocator, store: *Store) !Reader {
-        const file = try fs.cwd().openFile(DEFAULT_FILE_NAME, .{ .mode = .read_only });
+        const file = try fs.cwd().openFile(DEFAULT_FILE_NAME, .{});
 
-        const buffer = try allocator.create([1024]u8);
-        const reader = file.reader(buffer);
+        const buffer = try allocator.alloc(u8, 1024 * 100);
 
-        return .{ .allocator = allocator, .buffer = buffer, .store = store, .file = file, .reader = reader };
+        var reader = file.reader(buffer);
+
+        return .{ .allocator = allocator, .buffer = buffer, .store = store, .file = file, .reader = &reader.interface };
     }
 
     pub fn rdbFileExists() bool {
         fs.cwd().access(DEFAULT_FILE_NAME, .{}) catch {
             return false;
         };
+
         return true;
     }
 
-    pub fn deinit(self: *Reader) void {
+    pub fn deinit(self: Reader) void {
         self.allocator.free(self.buffer);
         self.file.close();
     }
 
     pub fn readFile(self: Reader) !RdbReaderOutput {
-        const output: RdbReaderOutput = .{};
-        const reader = self.reader;
-        const magic_string = try reader.take(5);
+        var output: RdbReaderOutput = .{
+            .rdb_version = undefined,
+            .redis_version = undefined,
+            .redis_bits = undefined,
+            .ctime = undefined,
+            .used_mem = undefined,
+            .aof_base = undefined,
+            .resize_db = undefined,
+            .resize_db_expiration = undefined,
+            .select_db = undefined,
+        };
+        var reader = self.reader;
+        const magic_string = try reader.takeArray(5);
         assert(magic_string, MAGIC_STRING);
 
-        const rdb_version_str = try reader.take(4);
-        const rdb_version = std.fmt.parseInt(u16, rdb_version_str, 10) catch {
-            return ReaderError.MalformedRDB;
-        };
+        const rdb_version = try reader.takeArray(4);
         output.rdb_version = rdb_version;
 
         while (true) {
             const byte = try reader.takeByte();
 
+            std.log.debug("Byte {x}", .{byte});
+
             switch (byte) {
                 OPCODE_AUX => {
-                    const key = self.readString();
+                    const key = try self.readString();
 
                     if (eql(u8, key, "redis-ver")) {
-                        output.rdb_version = try self.readString();
+                        output.redis_version = try self.readString();
                     } else if (eql(u8, key, "redis-bits")) {
                         output.redis_bits = try self.readInt();
                     } else if (eql(u8, key, "ctime")) {
-                        output.rdb_version = try self.readInt();
+                        output.ctime = try self.readInt();
                     } else if (eql(u8, key, "used-mem")) {
-                        output.rdb_version = try self.readInt();
+                        output.used_mem = try self.readInt();
                     } else if (eql(u8, key, "aof-base")) {
                         output.aof_base = try self.readInt();
                     }
                 },
-                else => {},
+                OPCODE_RESIZE_DB => {
+                    output.resize_db = try self.readLength();
+                    output.resize_db_expiration = try self.readLength();
+                },
+                OPCODE_SELECT_DB => {
+                    output.select_db = try self.readLength();
+                },
+
+                OPCODE_EXPIRE_TIME_MS => {
+                    const expiration = try reader.takeInt(u64, .little);
+                    const op_code = try reader.takeByte();
+                    _ = expiration;
+                    _ = op_code;
+                    try self.readEntry();
+                },
+                VALUE_TYPE_STR => {
+                    try self.readEntry();
+                },
+                OPCODE_EOF => {
+                    break;
+                },
+                else => {
+                    return error.MalformedRDB;
+                },
             }
         }
         return output;
     }
 
-    fn assert(incoming_byes: []u8, expected: []u8) !void {
+    fn readEntry(self: Reader) !void {
+        const key = try self.readString();
+        const value = try self.genericRead();
+
+        try self.store.setObject(key, .{ .value = value, .expiry = undefined });
+    }
+
+    fn assert(incoming_byes: []u8, expected: []const u8) void {
         std.debug.assert(std.mem.eql(u8, incoming_byes, expected));
     }
 
-    fn readLength(self: Reader) !usize {
-        const reader = self.reader;
+    fn readLength(self: Reader) !u64 {
+        var reader = self.reader;
         const first_byte = try reader.takeByte();
 
         switch (first_byte) {
@@ -282,7 +339,7 @@ pub const Reader = struct {
                 return (high_part << 8) | low_part;
             },
             LEN_PREFIX_32_INT => {
-                return reader.takeInt(u32, .big);
+                return try reader.takeInt(u32, .big);
             },
             LEN_PREFIX_64_INT => {
                 return try reader.takeInt(u64, .big);
@@ -292,17 +349,17 @@ pub const Reader = struct {
     }
 
     fn readInt(self: Reader) !i64 {
-        const reader = self.reader;
+        var reader = self.reader;
         const first_byte = try reader.takeByte();
         switch (first_byte) {
             INT_PREFIX_8_BITS => {
-                return reader.takeInt(i8, .little);
+                return try reader.takeInt(i8, .little);
             },
             INT_PREFIX_16_BITS => {
-                return reader.takeInt(i16, .little);
+                return try reader.takeInt(i16, .little);
             },
             INT_PREFIX_32_BITS => {
-                return reader.takeInt(i32, .little);
+                return try reader.takeInt(i32, .little);
             },
 
             else => {
@@ -312,15 +369,25 @@ pub const Reader = struct {
         }
     }
 
-    fn readString(self: Reader) !*[]u8 {
+    fn readString(self: Reader) ![]u8 {
+        var reader = self.reader;
         const len = try self.readLength();
-        return self.reader.takeArray(len);
+        return reader.take(len);
     }
 
-    fn genericRead(self: Reader) !void {
-        const first_byte = try self.reader.takeByte();
+    fn genericRead(self: Reader) !ZedisValue {
+        const first_byte = try self.reader.peekByte();
 
-        switch (first_byte) {}
+        switch (first_byte) {
+            INT_PREFIX_8_BITS, INT_PREFIX_16_BITS, INT_PREFIX_32_BITS => {
+                const int = try self.readInt();
+                return .{ .int = int };
+            },
+            else => {
+                const str = try self.readString();
+                return .{ .string = str };
+            },
+        }
     }
 };
 

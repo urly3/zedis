@@ -16,22 +16,26 @@ pub const Server = struct {
 
         const store = Store.init(allocator);
 
-        var server = Server{
+        const file_exists = Reader.rdbFileExists();
+
+        if (file_exists) {
+            const reader = try Reader.init(allocator, @constCast(&store));
+            errdefer reader.deinit();
+            defer reader.deinit();
+
+            if (reader.readFile()) |data| {
+                std.log.debug("output rdb {any}", .{data});
+            } else |err| {
+                std.log.err("Failed to load rdb: {s}", .{@errorName(err)});
+            }
+        }
+
+        return .{
             .allocator = allocator,
             .address = address,
             .listener = listener,
             .store = store,
         };
-
-        const file_exists = Reader.rdbFileExists();
-
-        if (file_exists) {
-            const reader = try Reader.init(allocator, &server.store);
-            const data = try reader.readFile();
-            std.log.debug("output rdb {any}", .{data});
-        }
-
-        return server;
     }
 
     pub fn deinit(self: *Server) void {

@@ -1,29 +1,26 @@
 const std = @import("std");
 
-pub const ValueType = enum {
-    string,
+pub const ValueType = enum(u8) {
+    string = 0,
     int,
     // list,
 
     pub fn toRdbOpcode(self: ValueType) u8 {
-        const RDB_TYPE_STRING = 0x00;
-        // const RDB_TYPE_LIST = 0x01;
+        return @intFromEnum(self);
+    }
 
-        return switch (self) {
-            .string => RDB_TYPE_STRING,
-            .int => RDB_TYPE_STRING,
-            // .list => RDB_TYPE_LIST,
-        };
+    pub fn fromOpCode(num: u8) ValueType {
+        return @enumFromInt(num);
     }
 };
 
 pub const ZedisValue = union(ValueType) {
-    string: []u8,
+    string: []const u8,
     int: i64,
     // list: std.array_list,
 };
 
-pub const ZedisObject = struct { valueType: ValueType, value: ZedisValue, expiry: ?u64 = null };
+pub const ZedisObject = struct { value: ZedisValue, expiry: ?u64 = null };
 
 pub const Store = struct {
     allocator: std.mem.Allocator,
@@ -63,26 +60,26 @@ pub const Store = struct {
 
     // Sets a key-value pair with a string value. It acquires a lock to ensure thread safety.
     pub fn setString(self: *Store, key: []const u8, value: []const u8) !void {
-        const zedis_object = ZedisObject{ .valueType = .string, .value = .{ .string = undefined } };
-        try self.setObject(key, zedis_object, value);
+        const zedis_object = ZedisObject{ .value = .{ .string = value } };
+        try self.setObject(key, zedis_object);
     }
 
     // Sets a key-value pair with a ZedisObject. It acquires a lock to ensure thread safety.
-    pub fn setObject(self: *Store, key: []const u8, object: ZedisObject, string_data: ?[]const u8) !void {
+    pub fn setObject(self: *Store, key: []const u8, object: ZedisObject) !void {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        return self.setObjectUnsafe(key, object, string_data);
+        return self.setObjectUnsafe(key, object);
     }
 
     // Sets a key with an integer value
     pub fn setInt(self: *Store, key: []const u8, value: i64) !void {
-        const zedis_object = ZedisObject{ .valueType = .int, .value = .{ .int = value } };
-        try self.setObject(key, zedis_object, null);
+        const zedis_object = ZedisObject{ .value = .{ .int = value } };
+        try self.setObject(key, zedis_object);
     }
 
     // Internal unsafe version that doesn't acquire locks (for use when already locked)
-    pub fn setObjectUnsafe(self: *Store, key: []const u8, object: ZedisObject, string_data: ?[]const u8) !void {
+    pub fn setObjectUnsafe(self: *Store, key: []const u8, object: ZedisObject) !void {
         // Check if key already exists and free old memory
         var key_exists = false;
         if (self.map.getPtr(key)) |existing_entry| {
@@ -108,16 +105,11 @@ pub const Store = struct {
 
         // Set up the new object
         var new_object = object;
-        switch (object.valueType) {
+        switch (object.value) {
             .string => {
-                if (string_data) |data| {
-                    // Allocate and copy string data
-                    const value_copy = try self.allocator.dupe(u8, data);
-                    errdefer self.allocator.free(value_copy);
-                    new_object.value = .{ .string = value_copy };
-                } else {
-                    return error.MissingStringData;
-                }
+                const value_copy = try self.allocator.dupe(u8, object.value.string);
+                errdefer self.allocator.free(value_copy);
+                new_object.value = .{ .string = value_copy };
             },
             .int => {
                 // Integer values don't need allocation
