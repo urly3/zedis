@@ -297,6 +297,7 @@ pub const Reader = struct {
                 OPCODE_EXPIRE_TIME_MS => {
                     const expiration = try reader.takeInt(u64, .little);
                     const op_code = try reader.takeByte();
+                    // TODO Load expiration time
                     _ = expiration;
                     _ = op_code;
                     try self.readEntry();
