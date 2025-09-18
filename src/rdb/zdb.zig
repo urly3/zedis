@@ -268,8 +268,6 @@ pub const Reader = struct {
         while (true) {
             const byte = try reader.takeByte();
 
-            std.log.debug("Byte {x}", .{byte});
-
             switch (byte) {
                 OPCODE_AUX => {
                     const key = try self.readString();

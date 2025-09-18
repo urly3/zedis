@@ -11,7 +11,7 @@ pub fn main() !void {
 
     // Create and start the server.
     if (server.Server.init(allocator, host, port)) |redis_server_const| {
-        var redis_server = @constCast(&redis_server_const);
+        var redis_server = redis_server_const;
         defer redis_server.deinit();
         errdefer redis_server.deinit();
 
