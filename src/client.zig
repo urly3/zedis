@@ -6,30 +6,36 @@ const ZedisObject = store_mod.ZedisObject;
 const Command = @import("parser.zig").Command;
 const CommandRegistry = @import("./commands/registry.zig").CommandRegistry;
 const Connection = std.net.Server.Connection;
+const zedis_types = @import("./zedis_types.zig");
+const PubSubChannelMap = zedis_types.PubSubChannelMap;
 
 pub const Client = struct {
     allocator: std.mem.Allocator,
     connection: Connection,
     store: *Store,
     command_registry: *CommandRegistry,
+    pub_sub_channels: *PubSubChannelMap,
 
-    // Initializes a new client handler.
-    pub fn init(allocator: std.mem.Allocator, connection: Connection, store: *Store, registry: *CommandRegistry) !Client {
+    pub fn init(
+        allocator: std.mem.Allocator,
+        connection: Connection,
+        store: *Store,
+        registry: *CommandRegistry,
+        pub_sub_channels: *PubSubChannelMap,
+    ) !Client {
         return .{
             .allocator = allocator,
             .connection = connection,
             .store = store,
             .command_registry = registry,
+            .pub_sub_channels = pub_sub_channels,
         };
     }
 
-    // Cleans up client resources.
     pub fn deinit(self: *Client) void {
-        self.command_registry.deinit();
         self.connection.stream.close();
     }
 
-    // Main loop for a client. It continuously reads and processes commands.
     pub fn handle(self: *Client) !void {
         while (true) {
             // Parse the incoming command from the client's stream.

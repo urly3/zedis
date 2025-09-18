@@ -1,13 +1,17 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const Connection = std.net.Server.Connection;
+const time = std.time;
 const Client = @import("client.zig").Client;
 const CommandRegistry = @import("./commands/registry.zig").CommandRegistry;
 const connection_commands = @import("./commands/connection.zig");
 const Reader = @import("./rdb/zdb.zig").Reader;
 const Store = @import("store.zig").Store;
-const time = std.time;
 const t_string = @import("./commands/t_string.zig");
-const rdb = @import("./commands//rdb.zig");
+const rdb = @import("./commands/rdb.zig");
+const zedis_types = @import("./zedis_types.zig");
+const PubSubChannelMap = zedis_types.PubSubChannelMap;
+const pubsub = @import("./pubsub/pubsub.zig");
 
 pub const Server = struct {
     allocator: std.mem.Allocator,
@@ -15,6 +19,7 @@ pub const Server = struct {
     listener: std.net.Server,
     store: Store,
     registry: CommandRegistry,
+    pub_sub_channels: PubSubChannelMap,
 
     // Metadata
     redisVersion: ?[]u8 = undefined,
@@ -36,6 +41,7 @@ pub const Server = struct {
             .store = store,
             .createdTime = time.timestamp(),
             .registry = registry,
+            .pub_sub_channels = PubSubChannelMap.init(allocator),
         };
 
         const file_exists = Reader.rdbFileExists();
@@ -58,6 +64,8 @@ pub const Server = struct {
     pub fn deinit(self: *Server) void {
         self.listener.deinit();
         self.store.deinit();
+        self.registry.deinit();
+        self.pub_sub_channels.deinit();
     }
 
     pub fn initRegistry(allocator: Allocator) !CommandRegistry {
@@ -143,6 +151,14 @@ pub const Server = struct {
             .description = "The SAVE commands performs a synchronous save of the dataset producing a point in time snapshot of all the data inside the Redis instance, in the form of an RDB file.",
         });
 
+        try registry.register(.{
+            .name = "PUBLISH",
+            .handler = pubsub.publish,
+            .min_args = 3,
+            .max_args = 3,
+            .description = "Publish message",
+        });
+
         return registry;
     }
 
@@ -161,7 +177,13 @@ pub const Server = struct {
     }
 
     fn handleConnection(self: *Server, conn: std.net.Server.Connection) !void {
-        var client = Client.init(self.allocator, conn, &self.store, &self.registry) catch |err| {
+        var client = Client.init(
+            self.allocator,
+            conn,
+            &self.store,
+            &self.registry,
+            &self.pub_sub_channels,
+        ) catch |err| {
             std.log.err("Failed to initialize client: {s}", .{@errorName(err)});
             conn.stream.close();
             return;

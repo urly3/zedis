@@ -17,9 +17,6 @@ pub fn ping(client: *Client, args: []const Value) !void {
 
 // ECHO command implementation
 pub fn echo(client: *Client, args: []const Value) !void {
-    if (args.len != 2) {
-        return client.writeError("ERR wrong number of arguments for 'echo'");
-    }
     try client.writeBulkString(args[1].asSlice());
 }
 
