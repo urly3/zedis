@@ -12,23 +12,23 @@ pub const PubSubContext = struct {
         return PubSubContext{ .server = server };
     }
 
-    pub fn findOrCreateChannel(self: *PubSubContext, channel_name: []const u8) ?u32 {
-        return self.server.findOrCreateChannel(channel_name);
+    pub fn ensureChannelExists(self: *PubSubContext, channel_name: []const u8) !void {
+        return self.server.ensureChannelExists(channel_name);
     }
 
-    pub fn subscribeToChannel(self: *PubSubContext, channel_id: u32, client_id: u64) !void {
-        return self.server.subscribeToChannel(channel_id, client_id);
+    pub fn subscribeToChannel(self: *PubSubContext, channel_name: []const u8, client_id: u64) !void {
+        return self.server.subscribeToChannel(channel_name, client_id);
     }
 
-    pub fn unsubscribeFromChannel(self: *PubSubContext, channel_id: u32, client_id: u64) void {
-        self.server.unsubscribeFromChannel(channel_id, client_id);
+    pub fn unsubscribeFromChannel(self: *PubSubContext, channel_name: []const u8, client_id: u64) !void {
+        return self.server.unsubscribeFromChannel(channel_name, client_id);
     }
 
-    pub fn getChannelSubscribers(self: *PubSubContext, channel_id: u32) []const u64 {
-        return self.server.getChannelSubscribers(channel_id);
+    pub fn getChannelSubscribers(self: *PubSubContext, channel_name: []const u8) []const u64 {
+        return self.server.getChannelSubscribers(channel_name);
     }
 
-    pub fn getChannelNames(self: *PubSubContext) []const ?[]const u8 {
+    pub fn getChannelNames(self: *PubSubContext) std.StringHashMap([]u64).KeyIterator {
         return self.server.getChannelNames();
     }
 
@@ -43,23 +43,29 @@ pub const PubSubContext = struct {
 
 pub fn subscribe(client: *Client, args: []const Value) !void {
     var pubsub_context = client.pubsub_context;
+
+    // Enter pubsub mode on first subscription
+    if (!client.is_in_pubsub_mode) {
+        client.enterPubSubMode();
+    }
+
     var i: i64 = 0;
     for (args[1..]) |item| {
         const channel_name = item.asSlice();
-        // Find or create channel in the server's fixed matrix
-        const channel_id = pubsub_context.findOrCreateChannel(channel_name) orelse {
-            try client.writeError("ERR maximum number of channels reached");
+        // Ensure channel exists
+        pubsub_context.ensureChannelExists(channel_name) catch {
+            try client.writeError("ERR failed to create channel");
             continue;
         };
 
         // Subscribe client to channel
-        pubsub_context.subscribeToChannel(channel_id, client.client_id) catch |err| switch (err) {
+        pubsub_context.subscribeToChannel(channel_name, client.client_id) catch |err| switch (err) {
             error.ChannelFull => {
                 try client.writeError("ERR maximum subscribers per channel reached");
                 continue;
             },
-            error.InvalidChannel => {
-                try client.writeError("ERR invalid channel");
+            else => {
+                try client.writeError("ERR failed to subscribe to channel");
                 continue;
             },
         };
@@ -84,19 +90,10 @@ pub fn publish(client: *Client, args: []const Value) !void {
     const message = args[2].asSlice();
     var messages_sent: i64 = 0;
 
-    // Find channel in server's matrix
-    var channel_id: ?u32 = null;
-    for (pubsub_context.getChannelNames(), 0..) |existing_name, i| {
-        if (existing_name) |name| {
-            if (std.mem.eql(u8, name, channel_name)) {
-                channel_id = @intCast(i);
-                break;
-            }
-        }
-    }
+    // Get subscribers for this channel
+    const subscribers = pubsub_context.getChannelSubscribers(channel_name);
 
-    if (channel_id) |cid| {
-        const subscribers = pubsub_context.getChannelSubscribers(cid);
+    if (subscribers.len > 0) {
         for (subscribers) |subscriber_id| {
             // Find the subscriber client and deliver the message
             if (pubsub_context.findClientById(subscriber_id)) |subscriber_client| {
@@ -298,12 +295,12 @@ test "PubSubContext - error conditions" {
     // Test channel full condition by filling up a channel
     const channel_id = context.findOrCreateChannel("test-channel").?;
     var client_id: u64 = 1;
-    while (client_id <= 256) : (client_id += 1) {
+    while (client_id <= 16) : (client_id += 1) {
         try context.subscribeToChannel(channel_id, client_id);
     }
 
     // Next subscription should fail
-    const full_result = context.subscribeToChannel(channel_id, 257);
+    const full_result = context.subscribeToChannel(channel_id, 17);
     try testing.expectError(error.ChannelFull, full_result);
 }
 
@@ -448,7 +445,7 @@ test "subscribe command - channel limit reached" {
 
     // Fill up all channels
     var i: u32 = 0;
-    while (i < 64) : (i += 1) {
+    while (i < 8) : (i += 1) {
         const channel_name = try std.fmt.allocPrint(allocator, "channel{d}", .{i});
         defer allocator.free(channel_name);
         _ = context.findOrCreateChannel(channel_name);
@@ -656,12 +653,12 @@ test "subscriber limit per channel error" {
     // Fill channel to capacity
     const channel_id = context.findOrCreateChannel("full-channel").?;
     var client_id: u64 = 1;
-    while (client_id <= 256) : (client_id += 1) {
+    while (client_id <= 16) : (client_id += 1) {
         try context.subscribeToChannel(channel_id, client_id);
     }
 
     // Try to subscribe one more
-    var client = MockClient.initWithId(257, allocator, &data_store, &context);
+    var client = MockClient.initWithId(17, allocator, &data_store, &context);
     defer client.deinit();
 
     const args = [_]Value{

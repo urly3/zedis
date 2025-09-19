@@ -22,6 +22,7 @@ pub const Client = struct {
     store: *Store,
     command_registry: *CommandRegistry,
     pubsub_context: *PubSubContext,
+    is_in_pubsub_mode: bool,
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -38,11 +39,17 @@ pub const Client = struct {
             .store = store,
             .command_registry = registry,
             .pubsub_context = pubsub_context,
+            .is_in_pubsub_mode = false,
         };
     }
 
     pub fn deinit(self: *Client) void {
         self.connection.stream.close();
+    }
+
+    pub fn enterPubSubMode(self: *Client) void {
+        self.is_in_pubsub_mode = true;
+        std.log.debug("Client {} entered pubsub mode", .{self.client_id});
     }
 
     pub fn handle(self: *Client) !void {
@@ -51,7 +58,13 @@ pub const Client = struct {
             var parser = Parser.init(self.allocator, self.connection.stream);
             var command = parser.parse() catch |err| {
                 // If there's an error (like a closed connection), we stop handling this client.
-                if (err == error.EndOfStream) return;
+                if (err == error.EndOfStream) {
+                    // In pubsub mode, we might want to keep the connection open even on EndOfStream
+                    if (self.is_in_pubsub_mode) {
+                        std.log.debug("Client {} in pubsub mode, connection ended", .{self.client_id});
+                    }
+                    return;
+                }
                 std.log.err("Parse error: {s}", .{@errorName(err)});
                 self.writeError("ERR protocol error") catch {};
                 continue;
@@ -60,6 +73,11 @@ pub const Client = struct {
 
             // Execute the parsed command.
             try self.executeCommand(command);
+
+            // If we're in pubsub mode after executing a command, stay connected
+            if (self.is_in_pubsub_mode) {
+                std.log.debug("Client {} staying in pubsub mode", .{self.client_id});
+            }
         }
     }
 

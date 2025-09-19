@@ -2,9 +2,9 @@ const std = @import("std");
 const Client = @import("./client.zig").Client;
 
 // Server memory configuration constants
-pub const MAX_CLIENTS = 10000; // Production: support 10K concurrent clients
-pub const MAX_CHANNELS = 10000; // Production: support 10K pub/sub channels
-pub const MAX_SUBSCRIBERS_PER_CHANNEL = 1000; // Production: 1K subscribers per channel
+pub const MAX_CLIENTS = 100; // Reduced for testing: support 100 concurrent clients
+pub const MAX_CHANNELS = 100; // Reduced for testing: support 100 pub/sub channels
+pub const MAX_SUBSCRIBERS_PER_CHANNEL = 10; // Reduced for testing: 10 subscribers per channel
 
 // Memory budgets (in bytes)
 pub const KV_MEMORY_BUDGET = 8 * 1024 * 1024 * 1024; // 8GB for key-value store

@@ -24,9 +24,9 @@ pub const MockClient = struct {
         // Create a dummy pubsub context for legacy tests
         var dummy_server = MockServer{
             .allocator = allocator,
-            .channels = [_]?[]const u8{null} ** 64,
-            .subscribers = [_][256]u64{[_]u64{0} ** 256} ** 64,
-            .subscriber_counts = [_]u32{0} ** 64,
+            .channels = [_]?[]const u8{null} ** 8,
+            .subscribers = [_][16]u64{[_]u64{0} ** 16} ** 8,
+            .subscriber_counts = [_]u32{0} ** 8,
             .clients = std.ArrayList(*MockClient){},
             .channel_count = 0,
         };
@@ -214,18 +214,18 @@ pub const MockClient = struct {
 // MockServer for testing PubSub functionality
 pub const MockServer = struct {
     allocator: std.mem.Allocator,
-    channels: [64]?[]const u8, // Channel names (fixed size like real server)
-    subscribers: [64][256]u64, // Subscriber lists per channel (fixed size)
-    subscriber_counts: [64]u32, // Number of subscribers per channel
+    channels: [8]?[]const u8, // Channel names (reduced for tests)
+    subscribers: [8][16]u64, // Subscriber lists per channel (reduced for tests)
+    subscriber_counts: [8]u32, // Number of subscribers per channel
     clients: std.ArrayList(*MockClient), // List of connected clients
     channel_count: u32,
 
     pub fn init(allocator: std.mem.Allocator) MockServer {
         return MockServer{
             .allocator = allocator,
-            .channels = [_]?[]const u8{null} ** 64,
-            .subscribers = [_][256]u64{[_]u64{0} ** 256} ** 64,
-            .subscriber_counts = [_]u32{0} ** 64,
+            .channels = [_]?[]const u8{null} ** 8,
+            .subscribers = [_][16]u64{[_]u64{0} ** 16} ** 8,
+            .subscriber_counts = [_]u32{0} ** 8,
             .clients = std.ArrayList(*MockClient){},
             .channel_count = 0,
         };

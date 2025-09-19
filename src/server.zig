@@ -30,12 +30,11 @@ pub const Server = struct {
     listener: std.net.Server,
 
     // Fixed allocations (pre-allocated, never freed individually)
-    client_pool: [server_config.MAX_CLIENTS]Client,
+    client_pool: []Client,
     client_pool_bitmap: std.bit_set.IntegerBitSet(server_config.MAX_CLIENTS),
-    pubsub_matrix: [server_config.MAX_CHANNELS][server_config.MAX_SUBSCRIBERS_PER_CHANNEL]u64,
-    pubsub_subscriber_counts: [server_config.MAX_CHANNELS]u32,
-    pubsub_channel_names: [server_config.MAX_CHANNELS]?[]const u8,
-    pubsub_channel_count: u32,
+
+    // Map of channel_name -> array of client_id
+    pubsub_map: std.StringHashMap([]u64),
 
     // Arena for temporary/short-lived allocations
     temp_arena: std.heap.ArenaAllocator,
@@ -71,19 +70,20 @@ pub const Server = struct {
         var temp_arena = std.heap.ArenaAllocator.init(base_allocator);
         const registry = try Server.initRegistry(temp_arena.allocator());
 
+        // Allocate fixed memory pools on heap
+        const client_pool = try base_allocator.alloc(Client, server_config.MAX_CLIENTS);
+        @memset(client_pool, undefined);
+
         var server = Server{
             .config = config,
             .base_allocator = base_allocator,
             .address = address,
             .listener = listener,
+            .pubsub_map = std.StringHashMap([]u64).init(base_allocator),
 
-            // Fixed allocations - zero-initialized
-            .client_pool = [_]Client{undefined} ** server_config.MAX_CLIENTS,
+            // Fixed allocations - heap allocated
+            .client_pool = client_pool,
             .client_pool_bitmap = std.bit_set.IntegerBitSet(server_config.MAX_CLIENTS).initFull(), // All slots initially free
-            .pubsub_matrix = [_][server_config.MAX_SUBSCRIBERS_PER_CHANNEL]u64{[_]u64{0} ** server_config.MAX_SUBSCRIBERS_PER_CHANNEL} ** server_config.MAX_CHANNELS,
-            .pubsub_subscriber_counts = [_]u32{0} ** server_config.MAX_CHANNELS,
-            .pubsub_channel_names = [_]?[]const u8{null} ** server_config.MAX_CHANNELS,
-            .pubsub_channel_count = 0,
 
             // Arena for temporary allocations
             .temp_arena = temp_arena,
@@ -137,12 +137,19 @@ pub const Server = struct {
         // Registry cleanup (uses temp arena)
         self.registry.deinit();
 
+        // Clean up pubsub map
+        var iterator = self.pubsub_map.iterator();
+        while (iterator.next()) |entry| {
+            self.base_allocator.free(entry.value_ptr.*);
+        }
+        self.pubsub_map.deinit();
+
+        // Free heap allocated fixed memory pools
+        self.base_allocator.free(self.client_pool);
+
         // Allocator cleanup
         self.kv_allocator.deinit();
         self.temp_arena.deinit();
-
-        // Fixed allocations don't need cleanup
-        // client_pool, pubsub_matrix are stack allocated
 
         std.log.info("Server deinitialized - all memory freed", .{});
     }
@@ -305,8 +312,17 @@ pub const Server = struct {
 
         defer {
             // Clean up client and return slot to pool
+            // For pubsub clients that disconnected, clean them up from all channels first
+            if (client_slot.is_in_pubsub_mode) {
+                // Remove this client from all channels
+                self.cleanupDisconnectedPubSubClient(client_slot.client_id);
+                std.log.debug("Client {} removed from all channels and deallocated", .{client_slot.client_id});
+            }
+
+            // Always clean up and deallocate when connection ends
             client_slot.deinit();
             self.deallocateClient(client_slot);
+            std.log.debug("Client {} deallocated from pool", .{client_slot.client_id});
         }
 
         // log how long it took to handle the client
@@ -336,55 +352,85 @@ pub const Server = struct {
         }
     }
 
-    // Pub/sub matrix management methods
-    pub fn findOrCreateChannel(self: *Server, channel_name: []const u8) ?u32 {
-        // First, try to find existing channel
-        for (self.pubsub_channel_names[0..self.pubsub_channel_count], 0..) |existing_name, i| {
-            if (existing_name) |name| {
-                if (std.mem.eql(u8, name, channel_name)) {
-                    return @intCast(i);
-                }
+    // Pub/sub HashMap management methods
+    pub fn ensureChannelExists(self: *Server, channel_name: []const u8) !void {
+        // Check if channel already exists
+        if (self.pubsub_map.contains(channel_name)) {
+            return;
+        }
+
+        // Create new empty subscriber list for this channel
+        const subscribers = try self.base_allocator.alloc(u64, 0);
+        try self.pubsub_map.put(channel_name, subscribers);
+    }
+
+    pub fn subscribeToChannel(self: *Server, channel_name: []const u8, client_id: u64) !void {
+        // Ensure channel exists
+        try self.ensureChannelExists(channel_name);
+
+        // Get current subscribers
+        const current_subscribers = self.pubsub_map.get(channel_name).?;
+
+        // Check if client is already subscribed
+        for (current_subscribers) |existing_id| {
+            if (existing_id == client_id) {
+                return; // Already subscribed, no-op
             }
         }
 
-        // Create new channel if we have space
-        if (self.pubsub_channel_count < server_config.MAX_CHANNELS) {
-            const channel_id = self.pubsub_channel_count;
-            // Store the channel name (this should ideally be interned)
-            self.pubsub_channel_names[channel_id] = channel_name;
-            self.pubsub_subscriber_counts[channel_id] = 0;
-            self.pubsub_channel_count += 1;
-            return channel_id;
-        }
-
-        return null; // No space for new channels
-    }
-
-    pub fn subscribeToChannel(self: *Server, channel_id: u32, client_id: u64) !void {
-        if (channel_id >= self.pubsub_channel_count) return error.InvalidChannel;
-
-        const current_count = self.pubsub_subscriber_counts[channel_id];
-        if (current_count >= server_config.MAX_SUBSCRIBERS_PER_CHANNEL) {
+        // Check limit
+        if (current_subscribers.len >= server_config.MAX_SUBSCRIBERS_PER_CHANNEL) {
             return error.ChannelFull;
         }
 
-        // Add client to channel
-        self.pubsub_matrix[channel_id][current_count] = client_id;
-        self.pubsub_subscriber_counts[channel_id] += 1;
+        // Add client to channel by reallocating the slice
+        const new_subscribers = try self.base_allocator.realloc(current_subscribers, current_subscribers.len + 1);
+        new_subscribers[new_subscribers.len - 1] = client_id;
+        try self.pubsub_map.put(channel_name, new_subscribers);
     }
 
-    pub fn unsubscribeFromChannel(self: *Server, channel_id: u32, client_id: u64) void {
-        if (channel_id >= self.pubsub_channel_count) return;
+    pub fn unsubscribeFromChannel(self: *Server, channel_name: []const u8, client_id: u64) !void {
+        // Get current subscribers
+        const current_subscribers = self.pubsub_map.get(channel_name) orelse return;
 
-        const count = self.pubsub_subscriber_counts[channel_id];
-        var i: u32 = 0;
-        while (i < count) : (i += 1) {
-            if (self.pubsub_matrix[channel_id][i] == client_id) {
-                // Swap with last element for O(1) removal
-                self.pubsub_matrix[channel_id][i] = self.pubsub_matrix[channel_id][count - 1];
-                self.pubsub_subscriber_counts[channel_id] -= 1;
+        // Find the client in the subscribers list
+        for (current_subscribers, 0..) |existing_id, i| {
+            if (existing_id == client_id) {
+                // Create new slice without this client
+                const new_subscribers = try self.base_allocator.alloc(u64, current_subscribers.len - 1);
+
+                // Copy elements before the removed one
+                @memcpy(new_subscribers[0..i], current_subscribers[0..i]);
+
+                // Copy elements after the removed one
+                if (i < current_subscribers.len - 1) {
+                    @memcpy(new_subscribers[i..], current_subscribers[i + 1 ..]);
+                }
+
+                // Free old slice and update map
+                self.base_allocator.free(current_subscribers);
+
+                if (new_subscribers.len == 0) {
+                    // Remove channel entirely if no subscribers
+                    _ = self.pubsub_map.remove(channel_name);
+                    self.base_allocator.free(new_subscribers);
+                } else {
+                    try self.pubsub_map.put(channel_name, new_subscribers);
+                }
                 return;
             }
+        }
+    }
+
+    // Clean up a disconnected pubsub client from all channels
+    pub fn cleanupDisconnectedPubSubClient(self: *Server, client_id: u64) void {
+        // Iterate through all channels and remove this client
+        var channel_iterator = self.pubsub_map.iterator();
+        while (channel_iterator.next()) |entry| {
+            const channel_name = entry.key_ptr.*;
+            self.unsubscribeFromChannel(channel_name, client_id) catch |err| {
+                std.log.warn("Failed to unsubscribe client {} from channel {s}: {s}", .{ client_id, channel_name, @errorName(err) });
+            };
         }
     }
 
@@ -399,25 +445,31 @@ pub const Server = struct {
             .total_budget = server_config.TOTAL_MEMORY_BUDGET,
         };
     }
-    pub fn getChannelSubscribers(self: *Server, channel_id: u32) []const u64 {
-        if (channel_id >= self.pubsub_channel_count) return &[_]u64{};
-        const count = self.pubsub_subscriber_counts[channel_id];
-        return self.pubsub_matrix[channel_id][0..count];
+    pub fn getChannelSubscribers(self: *Server, channel_name: []const u8) []const u64 {
+        return self.pubsub_map.get(channel_name) orelse &[_]u64{};
     }
 
     pub fn getChannelCount(self: *Server) u32 {
-        return self.pubsub_channel_count;
+        return @intCast(self.pubsub_map.count());
     }
 
-    pub fn getChannelNames(self: *Server) []const ?[]const u8 {
-        return self.pubsub_channel_names[0..self.pubsub_channel_count];
+    pub fn getChannelNames(self: *Server) std.StringHashMap([]u64).KeyIterator {
+        return self.pubsub_map.keyIterator();
     }
 
     pub fn findClientById(self: *Server, client_id: u64) ?*Client {
-        for (&self.client_pool, 0..) |*client, i| {
-            // Check if this slot is currently allocated (bit is unset)
-            if (!self.client_pool_bitmap.isSet(i) and client.client_id == client_id) {
-                return client;
+        for (self.client_pool, 0..) |*client, index| {
+            // if (!self.client_pool_bitmap.isSet(index) and client.client_id == client_id) {
+            //     if (client.client_id == client_id) {
+            //         return client;
+            //     }
+            // }
+
+            _ = index;
+            if (client.client_id == client_id) {
+                if (client.client_id == client_id) {
+                    return client;
+                }
             }
         }
         return null;
