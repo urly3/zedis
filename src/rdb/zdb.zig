@@ -467,7 +467,7 @@ test "ZDB writeMetadata writes correct format" {
 
     const key = "test";
     const value = "random";
-    try zdb.writeMetadata(key, value);
+    try zdb.writeMetadata(key, .{ .string = value });
     try zdb.writer.flush();
 
     const file_content = try std.fs.cwd().readFileAlloc(allocator, test_file, 1024);

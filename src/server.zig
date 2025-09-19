@@ -9,7 +9,7 @@ const CommandRegistry = @import("./commands/registry.zig").CommandRegistry;
 const connection_commands = @import("./commands/connection.zig");
 const Reader = @import("./rdb/zdb.zig").Reader;
 const Store = @import("store.zig").Store;
-const t_string = @import("./commands/t_string.zig");
+const string = @import("./commands/string.zig");
 const rdb = @import("./commands/rdb.zig");
 const zedis_types = @import("./zedis_types.zig");
 const PubSubChannelMap = zedis_types.PubSubChannelMap;
@@ -99,7 +99,6 @@ pub const Server = struct {
             .createdTime = time.timestamp(),
         };
 
-        // Initialize PubSubContext after server creation to avoid circular reference
         server.pubsub_context = PubSubContext.init(&server);
 
         // Load RDB file if it exists
@@ -110,7 +109,7 @@ pub const Server = struct {
             defer reader.deinit();
 
             if (reader.readFile()) |data| {
-                std.log.debug("output rdb {any}", .{data});
+                std.log.debug("Loading RDB", .{});
                 server.createdTime = data.ctime;
             } else |err| {
                 std.log.err("Failed to load rdb: {s}", .{@errorName(err)});
@@ -175,7 +174,7 @@ pub const Server = struct {
 
         try registry.register(.{
             .name = "SET",
-            .handler = t_string.set,
+            .handler = string.set,
             .min_args = 3,
             .max_args = 3,
             .description = "Set string value of a key",
@@ -183,7 +182,7 @@ pub const Server = struct {
 
         try registry.register(.{
             .name = "GET",
-            .handler = t_string.get,
+            .handler = string.get,
             .min_args = 2,
             .max_args = 2,
             .description = "Get string value of a key",
@@ -191,7 +190,7 @@ pub const Server = struct {
 
         try registry.register(.{
             .name = "INCR",
-            .handler = t_string.incr,
+            .handler = string.incr,
             .min_args = 2,
             .max_args = 2,
             .description = "Increment the value of a key",
@@ -199,7 +198,7 @@ pub const Server = struct {
 
         try registry.register(.{
             .name = "DECR",
-            .handler = t_string.decr,
+            .handler = string.decr,
             .min_args = 2,
             .max_args = 2,
             .description = "Decrement the value of a key",
@@ -215,7 +214,7 @@ pub const Server = struct {
 
         try registry.register(.{
             .name = "DEL",
-            .handler = t_string.del,
+            .handler = string.del,
             .min_args = 2,
             .max_args = null,
             .description = "Delete key",
