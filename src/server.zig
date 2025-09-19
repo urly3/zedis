@@ -14,6 +14,7 @@ const rdb = @import("./commands/rdb.zig");
 const zedis_types = @import("./zedis_types.zig");
 const PubSubChannelMap = zedis_types.PubSubChannelMap;
 const pubsub = @import("./pubsub/pubsub.zig");
+const PubSubContext = pubsub.PubSubContext;
 const server_config = @import("server_config.zig");
 const KeyValueAllocator = @import("kv_allocator.zig").KeyValueAllocator;
 
@@ -43,6 +44,7 @@ pub const Server = struct {
     kv_allocator: KeyValueAllocator,
     store: Store,
     registry: CommandRegistry,
+    pubsub_context: PubSubContext,
 
     // Metadata
     redisVersion: ?[]u8 = undefined,
@@ -90,11 +92,15 @@ pub const Server = struct {
             .kv_allocator = kv_allocator,
             .store = store,
             .registry = registry,
+            .pubsub_context = undefined, // Will be initialized after server creation
 
             // Metadata
             .redisVersion = undefined,
             .createdTime = time.timestamp(),
         };
+
+        // Initialize PubSubContext after server creation to avoid circular reference
+        server.pubsub_context = PubSubContext.init(&server);
 
         // Load RDB file if it exists
         const file_exists = Reader.rdbFileExists();
@@ -258,7 +264,7 @@ pub const Server = struct {
             };
 
             context.* = ConnectionContext{
-                .server_impl = self,
+                .server = self,
                 .connection = conn,
             };
 
@@ -273,9 +279,7 @@ pub const Server = struct {
     }
 
     fn handleConnectionWrapper(context: *ConnectionContext) void {
-        // Context cleanup is handled by arena reset, not individual destroy
-        const server_impl: *Server = @ptrCast(@alignCast(context.server_impl));
-        server_impl.handleConnection(context.connection) catch |err| {
+        context.server.handleConnection(context.connection) catch |err| {
             std.log.err("Error handling connection: {s}", .{@errorName(err)});
             context.connection.stream.close();
         };
@@ -295,7 +299,7 @@ pub const Server = struct {
             conn,
             &self.store,
             &self.registry,
-            self,
+            &self.pubsub_context,
         );
 
         defer {
@@ -390,8 +394,31 @@ pub const Server = struct {
             .kv_memory_used = self.kv_allocator.getMemoryUsage(),
             .temp_arena_used = self.temp_arena.queryCapacity() - self.temp_arena.state.buffer_list.first.?.data.len,
             .total_allocated = server_config.FIXED_MEMORY_SIZE + self.kv_allocator.getMemoryUsage() +
-                             (self.temp_arena.queryCapacity() - self.temp_arena.state.buffer_list.first.?.data.len),
+                (self.temp_arena.queryCapacity() - self.temp_arena.state.buffer_list.first.?.data.len),
             .total_budget = server_config.TOTAL_MEMORY_BUDGET,
         };
+    }
+    pub fn getChannelSubscribers(self: *Server, channel_id: u32) []const u64 {
+        if (channel_id >= self.pubsub_channel_count) return &[_]u64{};
+        const count = self.pubsub_subscriber_counts[channel_id];
+        return self.pubsub_matrix[channel_id][0..count];
+    }
+
+    pub fn getChannelCount(self: *Server) u32 {
+        return self.pubsub_channel_count;
+    }
+
+    pub fn getChannelNames(self: *Server) []const ?[]const u8 {
+        return self.pubsub_channel_names[0..self.pubsub_channel_count];
+    }
+
+    pub fn findClientById(self: *Server, client_id: u64) ?*Client {
+        for (&self.client_pool, 0..) |*client, i| {
+            // Check if this slot is currently allocated (bit is unset)
+            if (!self.client_pool_bitmap.isSet(i) and client.client_id == client_id) {
+                return client;
+            }
+        }
+        return null;
     }
 };

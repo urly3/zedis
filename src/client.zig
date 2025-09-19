@@ -10,7 +10,9 @@ const ZedisValue = store_mod.ZedisValue;
 const Command = @import("parser.zig").Command;
 const CommandRegistry = @import("./commands/registry.zig").CommandRegistry;
 const zedis_types = @import("./zedis_types.zig");
-const PubSubChannelMap = zedis_types.PubSubChannelMap;
+const Server = @import("./server.zig").Server;
+const PubSubContext = @import("./pubsub/pubsub.zig").PubSubContext;
+
 var next_client_id: std.atomic.Value(u64) = std.atomic.Value(u64).init(1);
 
 pub const Client = struct {
@@ -19,14 +21,14 @@ pub const Client = struct {
     connection: Connection,
     store: *Store,
     command_registry: *CommandRegistry,
-    server: *opaque{}, // Use opaque pointer to break circular dependency
+    pubsub_context: *PubSubContext,
 
     pub fn init(
         allocator: std.mem.Allocator,
         connection: Connection,
         store: *Store,
         registry: *CommandRegistry,
-        server: anytype,
+        pubsub_context: *PubSubContext,
     ) Client {
         const id = next_client_id.fetchAdd(1, .monotonic);
         return .{
@@ -35,7 +37,7 @@ pub const Client = struct {
             .connection = connection,
             .store = store,
             .command_registry = registry,
-            .server = @ptrCast(server),
+            .pubsub_context = pubsub_context,
         };
     }
 
@@ -139,47 +141,5 @@ pub const Client = struct {
 
     pub fn writeNull(self: *Client) !void {
         _ = try self.connection.stream.write("$-1\r\n");
-    }
-
-    // Server method wrappers using function pointers to avoid circular dependency
-    // These will be set during client initialization
-    pub fn findOrCreateChannel(self: *Client, channel_name: []const u8) ?u32 {
-        // TODO: Implement via function pointer to avoid circular dependency
-        _ = self;
-        _ = channel_name;
-        return null;
-    }
-
-    pub fn subscribeToChannel(self: *Client, channel_id: u32, client_id: u64) !void {
-        // TODO: Implement via function pointer to avoid circular dependency
-        _ = self;
-        _ = channel_id;
-        _ = client_id;
-    }
-
-    pub fn unsubscribeFromChannel(self: *Client, channel_id: u32, client_id: u64) void {
-        // TODO: Implement via function pointer to avoid circular dependency
-        _ = self;
-        _ = channel_id;
-        _ = client_id;
-    }
-
-    pub fn getChannelSubscribers(self: *Client, channel_id: u32) []const u64 {
-        // TODO: Implement via function pointer to avoid circular dependency
-        _ = self;
-        _ = channel_id;
-        return &[_]u64{};
-    }
-
-    pub fn getChannelCount(self: *Client) u32 {
-        // TODO: Implement via function pointer to avoid circular dependency
-        _ = self;
-        return 0;
-    }
-
-    pub fn getChannelNames(self: *Client) []const ?[]const u8 {
-        // TODO: Implement via function pointer to avoid circular dependency
-        _ = self;
-        return &[_]?[]const u8{};
     }
 };

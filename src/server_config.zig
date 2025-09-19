@@ -1,16 +1,15 @@
 const std = @import("std");
+const Client = @import("./client.zig").Client;
 
 // Server memory configuration constants
-pub const MAX_CLIENTS = 1000;    // Reduced for testing
-pub const MAX_CHANNELS = 100;    // Reduced for testing
+pub const MAX_CLIENTS = 1000; // Reduced for testing
+pub const MAX_CHANNELS = 100; // Reduced for testing
 pub const MAX_SUBSCRIBERS_PER_CHANNEL = 64; // Reduced for testing
 
 // Memory budgets (in bytes)
 pub const KV_MEMORY_BUDGET = 512 * 1024 * 1024; // 512MB for key-value store
-pub const TEMP_ARENA_SIZE = 64 * 1024 * 1024;   // 64MB for temporary allocations
-// Estimated size per client (avoid circular dependency with client.zig)
-// Client struct contains: u64 + Allocator + Connection + 2 pointers ≈ 64 bytes
-pub const CLIENT_POOL_SIZE = MAX_CLIENTS * 64;
+pub const TEMP_ARENA_SIZE = 64 * 1024 * 1024; // 64MB for temporary allocations
+pub const CLIENT_POOL_SIZE = MAX_CLIENTS * @sizeOf(Client);
 pub const PUBSUB_MATRIX_SIZE = MAX_CHANNELS * MAX_SUBSCRIBERS_PER_CHANNEL * @sizeOf(u64);
 
 // Total fixed memory calculation
@@ -26,9 +25,9 @@ pub const ServerConfig = struct {
     eviction_policy: EvictionPolicy = .allkeys_lru,
 
     pub const EvictionPolicy = enum {
-        noeviction,    // Return errors when memory limit reached
-        allkeys_lru,   // Evict least recently used keys
-        volatile_lru,  // Evict LRU keys with expire set
+        noeviction, // Return errors when memory limit reached
+        allkeys_lru, // Evict least recently used keys
+        volatile_lru, // Evict LRU keys with expire set
     };
 };
 
