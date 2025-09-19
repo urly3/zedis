@@ -2,17 +2,29 @@
 
 A Redis-compatible in-memory data store written in [Zig](https://ziglang.org/), designed for learning and experimentation. Zedis implements the core Redis protocol and data structures with a focus on simplicity, performance, and thread safety.
 
-## Features ✨
+## Features
 
-- **Redis Protocol Compatibility**: Supports the Redis Serialization Protocol (RESP)
-- **Thread-Safe Operations**: Built with concurrent access in mind using read-write locks
+- **Redis Protocol Compatibility**: Supports the Redis Serialization Protocol (RESP)locks
 - **Multiple Data Types**: String and integer value storage with automatic type conversion
 - **Core Commands**: Essential Redis commands including GET, SET, INCR, DECR, DEL, EXISTS, and TYPE
 - **High Performance**: Written in Zig for optimal performance and memory safety
 - **Connection Management**: Handles multiple concurrent client connections
-- **Detailed Logging**: Comprehensive logging for debugging and monitoring
+- **Disk persistence (RDB)**: Point-in-time snapshots of your dataset.
+- **Pub/Sub**: Decoupled communication between services. **(lastest feature)**
 
-## Quick Start 🏃‍♂️
+## Roadmap 🗺️
+
+- [x] Add [RDB snapshots](https://rdb.fnordig.de/file_format.html#string-encoding)
+- [x] Implement pub/sub functionality
+- [ ] Implement AOF (Append Only File) logging
+- [ ] Implement more Redis commands
+- [ ] Add support for lists and sets
+- [ ] Add configuration file support
+- [ ] Implement key expiration
+- [ ] Add clustering support
+- [ ] Performance benchmarking suite
+
+## Quick Start
 
 ### Prerequisites
 
@@ -91,17 +103,6 @@ pub fn myCommand(client: *Client, args: []const Value) !void {
 }
 ```
 
-## Roadmap 🗺️
-
-- [ ] Add [RDB snapshots](https://rdb.fnordig.de/file_format.html#string-encoding) (WIP)
-- [ ] Implement AOF (Append Only File) logging
-- [ ] Implement more Redis commands
-- [ ] Add support for lists and sets
-- [ ] Implement pub/sub functionality
-- [ ] Add configuration file support
-- [ ] Implement key expiration
-- [ ] Add clustering support
-- [ ] Performance benchmarking suite
 
 ### Code Style
 
