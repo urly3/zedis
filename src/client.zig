@@ -53,7 +53,7 @@ pub const Client = struct {
                 // If there's an error (like a closed connection), we stop handling this client.
                 if (err == error.EndOfStream) return;
                 std.log.err("Parse error: {s}", .{@errorName(err)});
-                try self.writeError("ERR protocol error");
+                self.writeError("ERR protocol error") catch {};
                 continue;
             };
             defer command.deinit();

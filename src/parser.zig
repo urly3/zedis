@@ -43,6 +43,8 @@ pub const Parser = struct {
     // *<num>\r\n$<len>\r\n<data>\r\n ...
     pub fn parse(self: *Parser) !Command {
         const line = try self.readLine();
+
+        std.log.debug("Line: {s}", .{line});
         if (line.len == 0 or line[0] != '*') {
             return error.InvalidProtocol;
         }

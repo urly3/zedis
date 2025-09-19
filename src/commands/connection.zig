@@ -4,12 +4,8 @@ const Value = @import("../parser.zig").Value;
 
 // PING command implementation
 pub fn ping(client: *Client, args: []const Value) !void {
-    if (args.len > 2) {
-        return client.writeError("ERR wrong number of arguments for 'ping'");
-    }
-
     if (args.len == 1) {
-        _ = try client.connection.stream.write("+PONG\r\n");
+        try client.writeBulkString("PONG");
     } else {
         try client.writeBulkString(args[1].asSlice());
     }

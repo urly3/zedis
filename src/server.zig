@@ -116,6 +116,8 @@ pub const Server = struct {
             }
         }
 
+        std.log.debug("Fixed Mem {any}", .{server_config.FIXED_MEMORY_SIZE});
+
         std.log.info("Server initialized with hybrid allocation - Fixed: {}MB, KV: {}MB, Arena: {}MB", .{
             server_config.FIXED_MEMORY_SIZE / (1024 * 1024),
             config.kv_memory_budget / (1024 * 1024),
