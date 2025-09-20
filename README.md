@@ -12,6 +12,7 @@ A Redis-compatible in-memory data store written in [Zig](https://ziglang.org/), 
 - **High Performance**: Written in Zig for optimal performance and memory safety
 - **Connection Management**: Handles multiple concurrent client connections
 - **Disk persistence (RDB)**: Point-in-time snapshots of your dataset.
+- **Memory Management**: No memory allocation during command execution.
 - **Pub/Sub**: Decoupled communication between services. **(lastest feature)**
 
 ## Roadmap 🗺️
@@ -78,6 +79,10 @@ The codebase follows Zig conventions with clear separation of concerns:
 - Memory safety without garbage collection
 - Modular design for easy extension
 - Comprehensive logging for debugging
+
+### Memory Management
+
+All memory allocations are handled during the initialization phase. No dynamic memory allocation occurs during command execution, ensuring high performance and predictability. Hugely inspired by this [article](https://tigerbeetle.com/blog/2022-10-12-a-database-without-dynamic-memory/).
 
 ### Building for Development
 
