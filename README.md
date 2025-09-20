@@ -2,6 +2,8 @@
 
 A Redis-compatible in-memory data store written in [Zig](https://ziglang.org/), designed for learning and experimentation. Zedis implements the core Redis protocol and data structures with a focus on simplicity, performance, and thread safety.
 
+> Made for learning purposes. Not intended for production use.
+
 ## Features
 
 - **Redis Protocol Compatibility**: Supports the Redis Serialization Protocol (RESP)locks
@@ -73,7 +75,8 @@ The codebase follows Zig conventions with clear separation of concerns:
 
 - Type-safe operations with compile-time guarantees
 - Explicit error handling throughout
-- Memory safety with RAII patterns
+- Memory safety without garbage collection
+- Modular design for easy extension
 - Comprehensive logging for debugging
 
 ### Building for Development
@@ -115,7 +118,3 @@ pub fn myCommand(client: *Client, args: []const Value) !void {
 
 - GitHub: [@barddoo](https://github.com/barddoo)
 - Project Link: [https://github.com/barddoo/zedis](https://github.com/barddoo/zedis)
-
----
-
-**Zedis** - Learning Redis internals through Zig! 🦎⚡
