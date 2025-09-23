@@ -130,9 +130,9 @@ pub const Writer = struct {
     fn writeCache(self: *Writer) !void {
         var it = self.store.map.iterator();
         while (it.next()) |entry| {
-            if (entry.value_ptr.*.expiry) |expiry| {
+            if (entry.value_ptr.*.expiration) |expiry| {
                 try self.writer.writeByte(OPCODE_EXPIRE_TIME_MS);
-                try self.writer.writeInt(u64, expiry, .little);
+                try self.writer.writeInt(i64, expiry, .little);
             }
 
             const value = entry.value_ptr.value;
@@ -318,7 +318,7 @@ pub const Reader = struct {
         const key = try self.readString();
         const value = try self.genericRead();
 
-        try self.store.setObject(key, .{ .value = value, .expiry = undefined });
+        try self.store.setObject(key, .{ .value = value, .expiration = undefined });
     }
 
     fn assert(incoming_byes: []u8, expected: []const u8) void {

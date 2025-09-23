@@ -7,6 +7,10 @@ pub const Value = struct {
     pub fn asSlice(self: Value) []const u8 {
         return self.data;
     }
+
+    pub fn asInt(self: Value) std.fmt.ParseIntError!i64 {
+        return std.fmt.parseInt(i64, self.data, 10);
+    }
 };
 
 // Represents a parsed command, which is an array of values.
@@ -44,7 +48,6 @@ pub const Parser = struct {
     pub fn parse(self: *Parser) !Command {
         const line = try self.readLine();
 
-        std.log.debug("Line: {s}", .{line});
         if (line.len == 0 or line[0] != '*') {
             return error.InvalidProtocol;
         }

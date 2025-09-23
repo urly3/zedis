@@ -17,6 +17,7 @@ const pubsub = @import("./pubsub/pubsub.zig");
 const PubSubContext = pubsub.PubSubContext;
 const server_config = @import("server_config.zig");
 const KeyValueAllocator = @import("kv_allocator.zig").KeyValueAllocator;
+const ExpirationJob = @import("./jobs/expiration.zig");
 
 pub const Server = struct {
     // Configuration
@@ -125,6 +126,11 @@ pub const Server = struct {
         });
 
         return server;
+    }
+
+    pub fn startBackgroundJobs(self: *Server) !void {
+        // Start threads running background jobs
+        try ExpirationJob.startExpirationJob(&self.store);
     }
 
     pub fn deinit(self: *Server) void {
@@ -251,6 +257,14 @@ pub const Server = struct {
             .min_args = 2,
             .max_args = null,
             .description = "Subscribe to channels",
+        });
+
+        try registry.register(.{
+            .name = "EXPIRE",
+            .handler = string.expire,
+            .min_args = 3,
+            .max_args = null,
+            .description = "Expire key",
         });
 
         return registry;

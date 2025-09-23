@@ -1,4 +1,4 @@
-# Zedis 🚀
+# Zedis
 
 A Redis-compatible in-memory data store written in [Zig](https://ziglang.org/), designed for learning and experimentation. Zedis implements the core Redis protocol and data structures with a focus on simplicity, performance, and thread safety.
 
@@ -13,17 +13,19 @@ A Redis-compatible in-memory data store written in [Zig](https://ziglang.org/), 
 - **Connection Management**: Handles multiple concurrent client connections
 - **Disk persistence (RDB)**: Point-in-time snapshots of your dataset.
 - **Memory Management**: No memory allocation during command execution.
-- **Pub/Sub**: Decoupled communication between services. **(lastest feature)**
+- **Pub/Sub**: Decoupled communication between services. **(latest feature)** 🎉
 
-## Roadmap 🗺️
+## Roadmap
 
 - [x] Add [RDB snapshots](https://rdb.fnordig.de/file_format.html#string-encoding)
 - [x] Implement pub/sub functionality
+- [x] Implement key expiration
+- [x] Background job for key expiration
+- [ ] Add tests to key expiration
 - [ ] Implement AOF (Append Only File) logging
 - [ ] Implement more Redis commands
 - [ ] Add support for lists and sets
 - [ ] Add configuration file support
-- [ ] Implement key expiration
 - [ ] Add clustering support
 - [ ] Performance benchmarking suite
 
@@ -68,7 +70,7 @@ OK
 string
 ```
 
-## Development 🛠️
+## Development
 
 ### Project Structure
 
@@ -111,7 +113,6 @@ pub fn myCommand(client: *Client, args: []const Value) !void {
 }
 ```
 
-
 ### Code Style
 
 - Follow Zig's standard formatting (`zig fmt`)
@@ -119,7 +120,10 @@ pub fn myCommand(client: *Client, args: []const Value) !void {
 - Include documentation comments for public APIs
 - Write tests for new functionality
 
-## Contact 📧
+## Contact
 
 - GitHub: [@barddoo](https://github.com/barddoo)
 - Project Link: [https://github.com/barddoo/zedis](https://github.com/barddoo/zedis)
+
+## Thanks
+- Inspired by [Redis](https://redis.io/) and [Zig](https://ziglang.org/)

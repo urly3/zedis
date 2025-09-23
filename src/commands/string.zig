@@ -136,6 +136,20 @@ pub fn del(client: *Client, args: []const Value) !void {
     try client.writeInt(deleted);
 }
 
+pub fn expire(client: *Client, args: []const Value) !void {
+    const key = args[1].asSlice();
+    const expiration_seconds = args[2].asInt() catch {
+        return client.writeInt(0);
+    };
+
+    const result = if (expiration_seconds < 0)
+        client.store.delete(key)
+    else
+        client.store.expire(key, std.time.milliTimestamp() + (expiration_seconds * 1000)) catch false;
+
+    try client.writeInt(if (result) 1 else 0);
+}
+
 const testing = std.testing;
 const MockClient = @import("../test_utils.zig").MockClient;
 

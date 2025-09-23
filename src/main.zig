@@ -10,17 +10,18 @@ pub fn main() !void {
     const port = 6379;
 
     // Create and start the server.
-    if (server.Server.init(allocator, host, port)) |redis_server_const| {
-        var redis_server = redis_server_const;
-        defer redis_server.deinit();
-        errdefer redis_server.deinit();
-
-        std.log.info("Zig Redis server listening on {s}:{d}", .{ host, port });
-
-        redis_server.listen() catch |err| {
-            std.log.err("Error on server {any}", .{@errorName(err)});
-        };
-    } else |err| {
+    var redis_server = server.Server.init(allocator, host, port) catch |err| {
         std.log.err("Error server init: {any}", .{@errorName(err)});
-    }
+        return;
+    };
+    defer redis_server.deinit();
+
+    // Start background jobs now that server is fully initialized
+    try redis_server.startBackgroundJobs();
+
+    std.log.info("Zig Redis server listening on {s}:{d}", .{ host, port });
+
+    redis_server.listen() catch |err| {
+        std.log.err("Error on server {any}", .{@errorName(err)});
+    };
 }

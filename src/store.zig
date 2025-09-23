@@ -20,26 +20,28 @@ pub const ZedisValue = union(ValueType) {
     // list: std.array_list,
 };
 
-pub const ZedisObject = struct { value: ZedisValue, expiry: ?u64 = null };
+pub const ZedisObject = struct { value: ZedisValue, expiration: ?i64 = null };
 
 pub const Store = struct {
     allocator: std.mem.Allocator,
     // The HashMap stores string keys and string values.
-    // We need to own the keys and values, so we allocate them.
     map: std.StringHashMap(ZedisObject),
+    // The HashMap stores
+    expiration_map: std.StringArrayHashMap(i64),
 
     // Initializes the store.
     pub fn init(allocator: std.mem.Allocator) Store {
         return .{
             .allocator = allocator,
             .map = std.StringHashMap(ZedisObject).init(allocator),
+            .expiration_map = std.StringArrayHashMap(i64).init(allocator),
         };
     }
 
     // Frees all memory associated with the store.
     pub fn deinit(self: *Store) void {
-        var it = self.map.iterator();
-        while (it.next()) |entry| {
+        var map_it = self.map.iterator();
+        while (map_it.next()) |entry| {
             self.allocator.free(entry.key_ptr.*);
             // Only free string values since integers don't need freeing
             switch (entry.value_ptr.*.value) {
@@ -48,10 +50,20 @@ pub const Store = struct {
             }
         }
         self.map.deinit();
+
+        var expiration_it = self.expiration_map.iterator();
+        while (expiration_it.next()) |entry| {
+            self.allocator.free(entry.key_ptr.*);
+        }
+        self.expiration_map.deinit();
     }
 
     pub fn size(self: Store) u32 {
         return self.map.count();
+    }
+
+    pub fn expirationSize(self: *Store) usize {
+        return self.expiration_map.count();
     }
 
     // Sets a key-value pair with a string value. It acquires a lock to ensure thread safety.
@@ -126,18 +138,20 @@ pub const Store = struct {
                 .string => |str| self.allocator.free(str),
                 .int => {},
             }
+            // Also remove from expiration map if it exists
+            _ = self.expiration_map.swapRemove(key);
             return true;
         }
         return false;
     }
 
     // Check if a key exists
-    pub fn exists(self: *Store, key: []const u8) bool {
+    pub fn exists(self: Store, key: []const u8) bool {
         return self.map.contains(key);
     }
 
     // Get the type of a value
-    pub fn getType(self: *Store, key: []const u8) ?ValueType {
+    pub fn getType(self: Store, key: []const u8) ?ValueType {
         if (self.map.get(key)) |obj| {
             return obj.valueType;
         }
@@ -145,7 +159,7 @@ pub const Store = struct {
     }
 
     // Gets a value by its key. It also acquires a lock.
-    pub fn get(self: *Store, key: []const u8) ?ZedisObject {
+    pub fn get(self: Store, key: []const u8) ?ZedisObject {
         if (self.map.get(key)) |obj| {
             return obj;
         } else {
@@ -154,7 +168,7 @@ pub const Store = struct {
     }
 
     // Gets a copy of the string value for thread safety
-    pub fn getString(self: *Store, allocator: std.mem.Allocator, key: []const u8) !?[]u8 {
+    pub fn getString(self: Store, allocator: std.mem.Allocator, key: []const u8) !?[]u8 {
         if (self.map.get(key)) |obj| {
             switch (obj.value) {
                 .string => |str| return try allocator.dupe(u8, str),
@@ -165,7 +179,7 @@ pub const Store = struct {
     }
 
     // Gets an integer value, converting from string if necessary
-    pub fn getInt(self: *Store, key: []const u8) !?i64 {
+    pub fn getInt(self: Store, key: []const u8) !?i64 {
         if (self.map.get(key)) |obj| {
             switch (obj.value) {
                 .int => |i| return i,
@@ -175,5 +189,20 @@ pub const Store = struct {
             }
         }
         return null;
+    }
+
+    pub fn expire(self: *Store, key: []const u8, time: i64) !bool {
+        if (self.map.getPtr(key)) |entry| {
+            entry.expiration = time;
+
+            const key_copy = try self.allocator.dupe(u8, key);
+            try self.expiration_map.put(key_copy, time);
+            return true;
+        }
+        return false;
+    }
+
+    pub fn isExpired(self: Store, key: []const u8) bool {
+        return self.expiration_map.contains(key);
     }
 };
