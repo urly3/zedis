@@ -205,7 +205,7 @@ pub const Reader = struct {
     allocator: std.mem.Allocator,
     buffer: []u8,
     file: std.fs.File,
-    reader: *std.Io.Reader,
+    reader: std.fs.File.Reader,
     store: *Store,
 
     const MAGIC_STRING = "REDIS";
@@ -228,9 +228,9 @@ pub const Reader = struct {
 
         const buffer = try allocator.alloc(u8, 1024 * 100);
 
-        var reader = file.reader(buffer);
+        const reader = file.reader(buffer);
 
-        return .{ .allocator = allocator, .buffer = buffer, .store = store, .file = file, .reader = &reader.interface };
+        return .{ .allocator = allocator, .buffer = buffer, .store = store, .file = file, .reader = reader };
     }
 
     pub fn rdbFileExists() bool {
@@ -259,14 +259,14 @@ pub const Reader = struct {
             .select_db = undefined,
         };
         var reader = self.reader;
-        const magic_string = try reader.takeArray(5);
+        const magic_string = try reader.interface.takeArray(5);
         assert(magic_string, MAGIC_STRING);
 
-        const rdb_version = try reader.takeArray(4);
+        const rdb_version = try reader.interface.takeArray(4);
         output.rdb_version = rdb_version;
 
         while (true) {
-            const byte = try reader.takeByte();
+            const byte = try reader.interface.takeByte();
 
             switch (byte) {
                 OPCODE_AUX => {
@@ -293,8 +293,8 @@ pub const Reader = struct {
                 },
 
                 OPCODE_EXPIRE_TIME_MS => {
-                    const expiration = try reader.takeInt(u64, .little);
-                    const op_code = try reader.takeByte();
+                    const expiration = try reader.interface.takeInt(u64, .little);
+                    const op_code = try reader.interface.takeByte();
                     // TODO Load expiration time
                     _ = expiration;
                     _ = op_code;
@@ -327,7 +327,7 @@ pub const Reader = struct {
 
     fn readLength(self: Reader) !u64 {
         var reader = self.reader;
-        const first_byte = try reader.takeByte();
+        const first_byte = try reader.interface.takeByte();
 
         switch (first_byte) {
             // Case 1: Bits are 00xxxxxx. The length IS the lower 6 bits.
@@ -342,16 +342,16 @@ pub const Reader = struct {
                 const high_part: u64 = @as(u64, first_byte & 0x3F);
 
                 // The low 8 bits of the length are the entire next byte.
-                const low_part: u64 = try reader.takeByte();
+                const low_part: u64 = try reader.interface.takeByte();
 
                 // Combine them: (high_bits << 8) | low_bits
                 return (high_part << 8) | low_part;
             },
             LEN_PREFIX_32_INT => {
-                return try reader.takeInt(u32, .big);
+                return try reader.interface.takeInt(u32, .big);
             },
             LEN_PREFIX_64_INT => {
-                return try reader.takeInt(u64, .big);
+                return try reader.interface.takeInt(u64, .big);
             },
             else => return ReaderError.UnknownLengthPrefix,
         }
@@ -359,16 +359,16 @@ pub const Reader = struct {
 
     fn readInt(self: Reader) !i64 {
         var reader = self.reader;
-        const first_byte = try reader.takeByte();
+        const first_byte = try reader.interface.takeByte();
         switch (first_byte) {
             INT_PREFIX_8_BITS => {
-                return try reader.takeInt(i8, .little);
+                return try reader.interface.takeInt(i8, .little);
             },
             INT_PREFIX_16_BITS => {
-                return try reader.takeInt(i16, .little);
+                return try reader.interface.takeInt(i16, .little);
             },
             INT_PREFIX_32_BITS => {
-                return try reader.takeInt(i32, .little);
+                return try reader.interface.takeInt(i32, .little);
             },
 
             else => {
@@ -381,11 +381,12 @@ pub const Reader = struct {
     fn readString(self: Reader) ![]u8 {
         var reader = self.reader;
         const len = try self.readLength();
-        return reader.take(len);
+        return reader.interface.take(len);
     }
 
     fn genericRead(self: Reader) !ZedisValue {
-        const first_byte = try self.reader.peekByte();
+        var reader = self.reader;
+        const first_byte = try reader.interface.peekByte();
 
         switch (first_byte) {
             INT_PREFIX_8_BITS, INT_PREFIX_16_BITS, INT_PREFIX_32_BITS => {

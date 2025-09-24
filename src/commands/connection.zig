@@ -19,7 +19,7 @@ pub fn echo(client: *Client, args: []const Value) !void {
 // QUIT command implementation
 pub fn quit(client: *Client, args: []const Value) !void {
     _ = args; // Unused parameter
-    _ = try client.connection.stream.write("+OK\r\n");
+    _ = try client.writer.interface.write("+OK\r\n");
     client.connection.stream.close();
 }
 

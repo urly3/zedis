@@ -23,7 +23,7 @@ pub fn set(client: *Client, args: []const Value) !void {
         try client.store.setString(key, value);
     }
 
-    _ = try client.connection.stream.write("+OK\r\n");
+    _ = try client.writer.interface.write("+OK\r\n");
 }
 
 pub fn get(client: *Client, args: []const Value) !void {

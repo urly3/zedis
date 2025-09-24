@@ -36,11 +36,11 @@ pub const Command = struct {
 
 pub const Parser = struct {
     allocator: std.mem.Allocator,
-    stream: std.net.Stream,
+    stream: std.net.Stream.Reader,
     line_buf: [1024 * 2]u8 = undefined,
 
     pub fn init(allocator: std.mem.Allocator, stream: std.net.Stream) Parser {
-        return .{ .allocator = allocator, .stream = stream };
+        return .{ .allocator = allocator, .stream = stream.reader(&.{}) };
     }
 
     // Main parsing function. It expects a command to be a RESP array of bulk strings:
@@ -82,14 +82,14 @@ pub const Parser = struct {
 
         var read_total: usize = 0;
         while (read_total < ulen) {
-            const n = try self.stream.read(data[read_total..]);
+            const n = try self.stream.interface().readSliceShort(data[read_total..]);
             if (n == 0) return error.EndOfStream;
             read_total += n;
         }
 
         // Expect trailing CRLF after the bulk string payload
         var crlf: [2]u8 = undefined;
-        _ = try self.stream.read(&crlf);
+        _ = try self.stream.interface().readSliceShort(&crlf);
         if (crlf[0] != '\r' or crlf[1] != '\n') {
             return error.InvalidProtocol;
         }
@@ -102,7 +102,7 @@ pub const Parser = struct {
         var i: usize = 0;
         while (true) {
             var b_buf: [1]u8 = undefined;
-            const bytes_read = try self.stream.read(&b_buf);
+            const bytes_read = try self.stream.interface().readSliceShort(&b_buf);
             if (bytes_read == 0) {
                 if (i == 0) return error.EndOfStream;
                 return error.InvalidProtocol;
@@ -111,7 +111,7 @@ pub const Parser = struct {
             switch (b) {
                 '\r' => {
                     var next_buf: [1]u8 = undefined;
-                    const next_bytes_read = self.stream.read(&next_buf) catch |err| {
+                    const next_bytes_read = self.stream.interface().readSliceShort(&next_buf) catch |err| {
                         if (err == error.EndOfStream) return error.InvalidProtocol; // incomplete CRLF
                         return err;
                     };
