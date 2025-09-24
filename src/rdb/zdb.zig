@@ -38,7 +38,7 @@ pub const Writer = struct {
     buffer: *[1024]u8,
     file: std.fs.File,
     store: *Store,
-    writer: std.Io.Writer,
+    writer: std.fs.File.Writer,
 
     fn mapToOpCode(val: ZedisValue) u8 {
         switch (val) {
@@ -62,12 +62,12 @@ pub const Writer = struct {
             .buffer = buffer,
             .file = file,
             .store = store,
-            .writer = writer.interface,
+            .writer = writer,
         };
     }
 
     pub fn deinit(self: *Writer) void {
-        _ = self.writer.flush() catch {};
+        _ = self.writer.interface.flush() catch {};
         self.file.close();
         self.allocator.destroy(self.buffer);
     }
@@ -77,33 +77,33 @@ pub const Writer = struct {
         try self.writeCache();
         try self.writeEndOfFile();
 
-        try self.writer.flush();
+        try self.writer.interface.flush();
     }
 
     fn writeHeader(self: *Writer) !void {
         try self.writeAuxFields();
 
-        try self.writer.writeByte(OPCODE_SELECT_DB);
+        try self.writer.interface.writeByte(OPCODE_SELECT_DB);
         try self.writeLength(0x00);
 
-        try self.writer.writeByte(OPCODE_RESIZE_DB);
+        try self.writer.interface.writeByte(OPCODE_RESIZE_DB);
         try self.writeLength(self.store.size());
         // TODO Write the size of the expiry hash table
         try self.writeLength(0);
     }
 
     fn writeEndOfFile(self: *Writer) !void {
-        try self.writer.writeByte(OPCODE_EOF);
+        try self.writer.interface.writeByte(OPCODE_EOF);
         // TODO Fix this
-        const file_content = self.writer.buffered();
+        const file_content = self.writer.interface.buffered();
         const checksum = CRC64.checksum(file_content);
 
-        try self.writer.writeInt(u64, checksum, .little);
+        try self.writer.interface.writeInt(u64, checksum, .little);
     }
 
     fn writeAuxFields(self: *Writer) !void {
-        _ = try self.writer.write("REDIS");
-        _ = try self.writer.write("0012");
+        _ = try self.writer.interface.write("REDIS");
+        _ = try self.writer.interface.write("0012");
 
         try self.writeMetadata("redis-ver", .{ .string = "255.255.255" });
 
@@ -122,7 +122,7 @@ pub const Writer = struct {
 
     fn writeMetadata(self: *Writer, key: []const u8, value: ZedisValue) !void {
         // 0xFA indicates auxiliary field; we encode key then value as length-prefixed strings.
-        try self.writer.writeByte(0xFA);
+        try self.writer.interface.writeByte(0xFA);
         try self.genericWrite(.{ .string = key });
         try self.genericWrite(value);
     }
@@ -131,14 +131,14 @@ pub const Writer = struct {
         var it = self.store.map.iterator();
         while (it.next()) |entry| {
             if (entry.value_ptr.*.expiration) |expiry| {
-                try self.writer.writeByte(OPCODE_EXPIRE_TIME_MS);
-                try self.writer.writeInt(i64, expiry, .little);
+                try self.writer.interface.writeByte(OPCODE_EXPIRE_TIME_MS);
+                try self.writer.interface.writeInt(i64, expiry, .little);
             }
 
             const value = entry.value_ptr.value;
 
             const op_code = Writer.mapToOpCode(value);
-            try self.writer.writeByte(op_code);
+            try self.writer.interface.writeByte(op_code);
 
             try self.writeString(entry.key_ptr.*);
 
@@ -151,39 +151,39 @@ pub const Writer = struct {
 
     fn writeLength(self: *Writer, len: u64) !void {
         if (len <= 63) { // 6-bit
-            try self.writer.writeByte(@as(u8, @truncate(len)));
+            try self.writer.interface.writeByte(@as(u8, @truncate(len)));
         } else if (len <= 16383) { // 14-bit
             const first_byte = 0b01000000 | @as(u8, @truncate(len >> 8));
             const second_byte = @as(u8, @truncate(len));
-            try self.writer.writeByte(first_byte);
-            try self.writer.writeByte(second_byte);
+            try self.writer.interface.writeByte(first_byte);
+            try self.writer.interface.writeByte(second_byte);
         } else if (len <= 0xFFFFFFFF) { // 32-bit
-            try self.writer.writeByte(LEN_PREFIX_32_INT);
-            try self.writer.writeInt(u32, @intCast(len), .big);
+            try self.writer.interface.writeByte(LEN_PREFIX_32_INT);
+            try self.writer.interface.writeInt(u32, @intCast(len), .big);
         } else { // 64-bit
-            try self.writer.writeByte(LEN_PREFIX_64_INT);
-            try self.writer.writeInt(u64, len, .big);
+            try self.writer.interface.writeByte(LEN_PREFIX_64_INT);
+            try self.writer.interface.writeInt(u64, len, .big);
         }
     }
 
     fn writeString(self: *Writer, str: []const u8) !void {
         try self.writeLength(str.len);
-        try self.writer.writeAll(str);
+        try self.writer.interface.writeAll(str);
     }
 
     fn writeInt(self: *Writer, number: i64) !void {
         if (number >= std.math.minInt(i8) and number <= std.math.maxInt(i8)) {
             // Can fit in i8
-            try self.writer.writeByte(INT_PREFIX_8_BITS);
-            try self.writer.writeInt(i8, @intCast(number), .little);
+            try self.writer.interface.writeByte(INT_PREFIX_8_BITS);
+            try self.writer.interface.writeInt(i8, @intCast(number), .little);
         } else if (number >= std.math.minInt(i16) and number <= std.math.maxInt(i16)) {
             // Can fit in i16
-            try self.writer.writeByte(INT_PREFIX_16_BITS);
-            try self.writer.writeInt(i16, @intCast(number), .little);
+            try self.writer.interface.writeByte(INT_PREFIX_16_BITS);
+            try self.writer.interface.writeInt(i16, @intCast(number), .little);
         } else if (number >= std.math.minInt(i32) and number <= std.math.maxInt(i32)) {
             // Can fit in i32
-            try self.writer.writeByte(INT_PREFIX_32_BITS);
-            try self.writer.writeInt(i32, @intCast(number), .little);
+            try self.writer.interface.writeByte(INT_PREFIX_32_BITS);
+            try self.writer.interface.writeInt(i32, @intCast(number), .little);
         } else {
             // Fallback for larger numbers (i64) or any number that doesn't fit
             // the above: write as a length-prefixed string.
@@ -446,7 +446,7 @@ test "ZDB writeString writes correct format" {
     defer std.fs.cwd().deleteFile(test_file) catch {};
 
     try zdb.genericWrite(.{ .string = "test" });
-    try zdb.writer.flush();
+    try zdb.writer.interface.flush();
 
     const file_content = try std.fs.cwd().readFileAlloc(allocator, test_file, 1024);
     defer allocator.free(file_content);
@@ -468,7 +468,7 @@ test "ZDB writeMetadata writes correct format" {
     const key = "test";
     const value = "random";
     try zdb.writeMetadata(key, .{ .string = value });
-    try zdb.writer.flush();
+    try zdb.writer.interface.flush();
 
     const file_content = try std.fs.cwd().readFileAlloc(allocator, test_file, 1024);
     defer allocator.free(file_content);
