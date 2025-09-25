@@ -303,7 +303,6 @@ pub const Server = struct {
     fn handleConnectionWrapper(context: *ConnectionContext) void {
         context.server.handleConnection(context.connection) catch |err| {
             std.log.err("Error handling connection: {s}", .{@errorName(err)});
-            context.connection.stream.close();
         };
     }
 
