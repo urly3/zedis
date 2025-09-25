@@ -57,7 +57,7 @@ pub const MockClient = struct {
     }
 
     pub fn writeBulkString(self: *MockClient, str: []const u8) !void {
-        try self.output.writer(self.allocator).print("${d}\r\n{s}\r\n", .{ str.len, str });
+        try self.output.print(self.allocator, "${d}\r\n{s}\r\n", .{ str.len, str });
     }
 
     pub fn writeNull(self: *MockClient) !void {
@@ -65,11 +65,11 @@ pub const MockClient = struct {
     }
 
     pub fn writeError(self: *MockClient, err_msg: []const u8) !void {
-        try self.output.writer(self.allocator).print("-{s}\r\n", .{err_msg});
+        try self.output.print(self.allocator, "-{s}\r\n", .{err_msg});
     }
 
     pub fn writeInt(self: *MockClient, num: anytype) !void {
-        try self.output.writer(self.allocator).print(":{d}\r\n", .{num});
+        try self.output.print(self.allocator, ":{d}\r\n", .{num});
     }
 
     pub fn getOutput(self: *MockClient) []const u8 {
@@ -183,13 +183,13 @@ pub const MockClient = struct {
 
     pub fn writeTupleAsArray(self: *MockClient, items: anytype) !void {
         const fields = std.meta.fields(@TypeOf(items));
-        try self.output.writer(self.allocator).print("*{d}\r\n", .{fields.len});
+        try self.output.print(self.allocator, "*{d}\r\n", .{fields.len});
 
         inline for (fields) |field| {
             const value = @field(items, field.name);
             switch (@TypeOf(value)) {
                 []const u8 => try self.writeBulkString(value),
-                i64, u64, u32, i32 => try self.output.writer(self.allocator).print(":{d}\r\n", .{value}),
+                i64, u64, u32, i32 => try self.output.print(self.allocator, ":{d}\r\n", .{value}),
                 else => {
                     // Handle string literals like *const [N:0]u8
                     const TypeInfo = @typeInfo(@TypeOf(value));

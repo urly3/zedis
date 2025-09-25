@@ -19,6 +19,7 @@ pub const Client = struct {
     client_id: u64,
     allocator: std.mem.Allocator,
     connection: Connection,
+    writer: std.net.Stream.Writer,
     store: *Store,
     command_registry: *CommandRegistry,
     pubsub_context: *PubSubContext,
@@ -36,6 +37,7 @@ pub const Client = struct {
             .client_id = id,
             .allocator = allocator,
             .connection = connection,
+            .writer = connection.stream.writer(&.{}),
             .store = store,
             .command_registry = registry,
             .pubsub_context = pubsub_context,
@@ -91,23 +93,23 @@ pub const Client = struct {
     pub fn writeError(self: *Client, msg: []const u8) !void {
         const formatted = try std.fmt.allocPrint(self.allocator, "-{s}\r\n", .{msg});
         defer self.allocator.free(formatted);
-        _ = try self.connection.stream.write(formatted);
+        _ = try self.writer.interface.write(formatted);
     }
 
     pub fn writeBulkString(self: *Client, str: []const u8) !void {
         const formatted = try std.fmt.allocPrint(self.allocator, "${d}\r\n{s}\r\n", .{ str.len, str });
         defer self.allocator.free(formatted);
-        _ = try self.connection.stream.write(formatted);
+        _ = try self.writer.interface.write(formatted);
     }
 
     pub fn writeInt(self: *Client, value: i64) !void {
         const formatted = try std.fmt.allocPrint(self.allocator, ":{d}\r\n", .{value});
         defer self.allocator.free(formatted);
-        _ = try self.connection.stream.write(formatted);
+        _ = try self.writer.interface.write(formatted);
     }
 
     pub fn writeArray(self: *Client, values: []const ZedisValue) !void {
-        try self.connection.stream.writer().print("*{d}\r\n", .{values.len});
+        try self.writer.interface.print("*{d}\r\n", .{values.len});
 
         // 2. Iterate over each element and write it to the stream.
         for (values) |value| {
@@ -137,7 +139,7 @@ pub const Client = struct {
         const struct_info = info.@"struct";
 
         const formatted = try std.fmt.allocPrint(self.allocator, "*{d}\r\n", .{struct_info.fields.len});
-        _ = try self.connection.stream.write(formatted);
+        _ = try self.writer.interface.write(formatted);
 
         // 4. Use 'inline for' to iterate over the tuple's elements at compile time.
         //    This loop is "unrolled" by the compiler, generating specific code
@@ -158,6 +160,6 @@ pub const Client = struct {
     }
 
     pub fn writeNull(self: *Client) !void {
-        _ = try self.connection.stream.write("$-1\r\n");
+        _ = try self.writer.interface.write("$-1\r\n");
     }
 };
