@@ -67,6 +67,12 @@ pub const Client = struct {
                     }
                     return;
                 }
+                if (err == error.ReadFailed) {
+                    if (self.is_in_pubsub_mode) {
+                        std.log.debug("Client {} in pubsub mode, read failed", .{self.client_id});
+                    }
+                    return err;
+                }
                 std.log.err("Parse error: {s}", .{@errorName(err)});
                 self.writeError("ERR protocol error") catch {};
                 continue;
