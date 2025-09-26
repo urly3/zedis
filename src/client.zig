@@ -9,7 +9,6 @@ const ZedisObject = store_mod.ZedisObject;
 const ZedisValue = store_mod.ZedisValue;
 const Command = @import("parser.zig").Command;
 const CommandRegistry = @import("./commands/registry.zig").CommandRegistry;
-const zedis_types = @import("./zedis_types.zig");
 const Server = @import("./server.zig").Server;
 const PubSubContext = @import("./pubsub/pubsub.zig").PubSubContext;
 const ServerConfig = @import("./server_config.zig").ServerConfig;
