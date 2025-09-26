@@ -17,7 +17,6 @@ const pubsub = @import("./pubsub/pubsub.zig");
 const PubSubContext = pubsub.PubSubContext;
 const server_config = @import("server_config.zig");
 const KeyValueAllocator = @import("kv_allocator.zig").KeyValueAllocator;
-const ExpirationJob = @import("./jobs/expiration.zig");
 
 pub const Server = struct {
     // Configuration
@@ -32,7 +31,7 @@ pub const Server = struct {
 
     // Fixed allocations (pre-allocated, never freed individually)
     client_pool: []Client,
-    client_pool_bitmap: std.bit_set.IntegerBitSet(server_config.MAX_CLIENTS),
+    client_pool_bitmap: std.bit_set.DynamicBitSet,
 
     // Map of channel_name -> array of client_id
     pubsub_map: std.StringHashMap([]u64),
@@ -84,7 +83,7 @@ pub const Server = struct {
 
             // Fixed allocations - heap allocated
             .client_pool = client_pool,
-            .client_pool_bitmap = std.bit_set.IntegerBitSet(server_config.MAX_CLIENTS).initFull(), // All slots initially free
+            .client_pool_bitmap = try std.bit_set.DynamicBitSet.initFull(base_allocator, server_config.MAX_CLIENTS),
 
             // Arena for temporary allocations
             .temp_arena = temp_arena,
@@ -99,6 +98,12 @@ pub const Server = struct {
             .redisVersion = undefined,
             .createdTime = time.timestamp(),
         };
+
+        if (config.requiresAuth()) {
+            std.log.info("Authentication required", .{});
+        } else {
+            std.log.debug("No authentication required", .{});
+        }
 
         server.pubsub_context = PubSubContext.init(&server);
 
@@ -117,8 +122,6 @@ pub const Server = struct {
             }
         }
 
-        std.log.debug("Fixed Mem {any}", .{server_config.FIXED_MEMORY_SIZE});
-
         std.log.info("Server initialized with hybrid allocation - Fixed: {}MB, KV: {}MB, Arena: {}MB", .{
             server_config.FIXED_MEMORY_SIZE / (1024 * 1024),
             config.kv_memory_budget / (1024 * 1024),
@@ -126,11 +129,6 @@ pub const Server = struct {
         });
 
         return server;
-    }
-
-    pub fn startBackgroundJobs(self: *Server) !void {
-        // Start threads running background jobs
-        try ExpirationJob.startExpirationJob(&self.store);
     }
 
     pub fn deinit(self: *Server) void {
@@ -152,6 +150,7 @@ pub const Server = struct {
 
         // Free heap allocated fixed memory pools
         self.base_allocator.free(self.client_pool);
+        self.client_pool_bitmap.deinit();
 
         // Allocator cleanup
         self.kv_allocator.deinit();
@@ -266,6 +265,13 @@ pub const Server = struct {
             .max_args = null,
             .description = "Expire key",
         });
+        try registry.register(.{
+            .name = "AUTH",
+            .handler = connection_commands.auth,
+            .min_args = 2,
+            .max_args = 2,
+            .description = "Authenticate to the server",
+        });
 
         return registry;
     }
@@ -318,9 +324,10 @@ pub const Server = struct {
         client_slot.* = Client.init(
             self.temp_arena.allocator(),
             conn,
-            &self.store,
-            &self.registry,
             &self.pubsub_context,
+            &self.registry,
+            self,
+            &self.store,
         );
 
         defer {

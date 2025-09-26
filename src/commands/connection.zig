@@ -23,6 +23,22 @@ pub fn quit(client: *Client, args: []const Value) !void {
     client.connection.stream.close();
 }
 
+pub fn auth(client: *Client, args: []const Value) !void {
+    const password = args[1].asSlice();
+
+    if (!client.server.config.requiresAuth()) {
+        return client.writeError("ERR Client sent AUTH, but no password is set");
+    }
+
+    if (std.mem.eql(u8, password, client.server.config.requirepass.?)) {
+        client.authenticated = true;
+        try client.writeBulkString("OK");
+    } else {
+        client.authenticated = false;
+        try client.writeError("ERR invalid password");
+    }
+}
+
 // HELP command implementation
 pub fn help(client: *Client, args: []const Value) !void {
     _ = args; // Unused parameter

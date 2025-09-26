@@ -16,9 +16,6 @@ pub fn main() !void {
     };
     defer redis_server.deinit();
 
-    // Start background jobs now that server is fully initialized
-    try redis_server.startBackgroundJobs();
-
     std.log.info("Zig Redis server listening on {s}:{d}", .{ host, port });
 
     redis_server.listen() catch |err| {

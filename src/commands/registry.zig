@@ -52,8 +52,16 @@ pub const CommandRegistry = struct {
         // Convert to uppercase for case-insensitive lookup
         var upper_name = try self.allocator.alloc(u8, command_name.len);
         defer self.allocator.free(upper_name);
+
         for (command_name, 0..) |c, i| {
             upper_name[i] = std.ascii.toUpper(c);
+        }
+
+        // Skip auth check for commands that don't need it
+        if (!std.mem.eql(u8, upper_name, "AUTH") and
+            !std.mem.eql(u8, upper_name, "PING") and
+            !client.isAuthenticated()) {
+            return client.writeError("NOAUTH Authentication required");
         }
 
         if (self.get(upper_name)) |cmd_info| {

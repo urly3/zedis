@@ -12,36 +12,42 @@ const CommandRegistry = @import("./commands/registry.zig").CommandRegistry;
 const zedis_types = @import("./zedis_types.zig");
 const Server = @import("./server.zig").Server;
 const PubSubContext = @import("./pubsub/pubsub.zig").PubSubContext;
+const ServerConfig = @import("./server_config.zig").ServerConfig;
 
 var next_client_id: std.atomic.Value(u64) = std.atomic.Value(u64).init(1);
 
 pub const Client = struct {
-    client_id: u64,
     allocator: std.mem.Allocator,
-    connection: Connection,
-    writer: std.net.Stream.Writer,
-    store: *Store,
+    authenticated: bool,
+    client_id: u64,
     command_registry: *CommandRegistry,
-    pubsub_context: *PubSubContext,
+    connection: Connection,
     is_in_pubsub_mode: bool,
+    pubsub_context: *PubSubContext,
+    server: *Server,
+    store: *Store,
+    writer: std.net.Stream.Writer,
 
     pub fn init(
         allocator: std.mem.Allocator,
         connection: Connection,
-        store: *Store,
-        registry: *CommandRegistry,
         pubsub_context: *PubSubContext,
+        registry: *CommandRegistry,
+        server: *Server,
+        store: *Store,
     ) Client {
         const id = next_client_id.fetchAdd(1, .monotonic);
         return .{
-            .client_id = id,
             .allocator = allocator,
-            .connection = connection,
-            .writer = connection.stream.writer(&.{}),
-            .store = store,
+            .authenticated = false,
+            .client_id = id,
             .command_registry = registry,
-            .pubsub_context = pubsub_context,
+            .connection = connection,
             .is_in_pubsub_mode = false,
+            .pubsub_context = pubsub_context,
+            .server = server,
+            .store = store,
+            .writer = connection.stream.writer(&.{}),
         };
     }
 
@@ -92,6 +98,10 @@ pub const Client = struct {
     // Dispatches the parsed command to the appropriate handler function.
     fn executeCommand(self: *Client, command: Command) !void {
         try self.command_registry.executeCommand(self, command.args.items);
+    }
+
+    pub fn isAuthenticated(self: *Client) bool {
+        return !self.server.config.requiresAuth() or self.authenticated;
     }
 
     // --- RESP Writing Helpers ---

@@ -2,12 +2,12 @@ const std = @import("std");
 const Client = @import("./client.zig").Client;
 
 // Server memory configuration constants
-pub const MAX_CLIENTS = 100; // Reduced for testing: support 100 concurrent clients
-pub const MAX_CHANNELS = 100; // Reduced for testing: support 100 pub/sub channels
-pub const MAX_SUBSCRIBERS_PER_CHANNEL = 10; // Reduced for testing: 10 subscribers per channel
+pub const MAX_CLIENTS = 10000; // Reduced for testing
+pub const MAX_CHANNELS = 100; // Reduced for testing
+pub const MAX_SUBSCRIBERS_PER_CHANNEL = 10; // Reduced for testing
 
 // Memory budgets (in bytes)
-pub const KV_MEMORY_BUDGET = 8 * 1024 * 1024 * 1024; // 8GB for key-value store
+pub const KV_MEMORY_BUDGET = 1 * 1024 * 1024 * 1024; // 1GB for key-value store
 pub const TEMP_ARENA_SIZE = 512 * 1024 * 1024; // 512MB for temporary allocations
 pub const CLIENT_POOL_SIZE = MAX_CLIENTS * @sizeOf(Client);
 pub const PUBSUB_MATRIX_SIZE = MAX_CHANNELS * MAX_SUBSCRIBERS_PER_CHANNEL * @sizeOf(u64);
@@ -23,12 +23,17 @@ pub const ServerConfig = struct {
     kv_memory_budget: usize = KV_MEMORY_BUDGET,
     temp_arena_size: usize = TEMP_ARENA_SIZE,
     eviction_policy: EvictionPolicy = .allkeys_lru,
+    requirepass: ?[]const u8 = null, // null = no auth required
 
     pub const EvictionPolicy = enum {
         noeviction, // Return errors when memory limit reached
         allkeys_lru, // Evict least recently used keys
         volatile_lru, // Evict LRU keys with expire set
     };
+
+    pub fn requiresAuth(self: ServerConfig) bool {
+        return self.requirepass != null;
+    }
 };
 
 pub const MemoryStats = struct {
