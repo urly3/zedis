@@ -108,8 +108,7 @@ pub const Server = struct {
         // Load RDB file if it exists
         const file_exists = Reader.rdbFileExists();
         if (file_exists) {
-            const reader = try Reader.init(server.temp_arena.allocator(), @constCast(&server.store));
-            errdefer reader.deinit();
+            var reader = try Reader.init(server.temp_arena.allocator(), &server.store);
             defer reader.deinit();
 
             if (reader.readFile()) |data| {
