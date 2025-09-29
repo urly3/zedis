@@ -54,18 +54,18 @@ pub fn subscribe(client: *Client, args: []const Value) !void {
         const channel_name = item.asSlice();
         // Ensure channel exists
         pubsub_context.ensureChannelExists(channel_name) catch {
-            try client.writeError("ERR failed to create channel");
+            try client.writeError("ERR failed to create channel", .{});
             continue;
         };
 
         // Subscribe client to channel
         pubsub_context.subscribeToChannel(channel_name, client.client_id) catch |err| switch (err) {
             error.ChannelFull => {
-                try client.writeError("ERR maximum subscribers per channel reached");
+                try client.writeError("ERR maximum subscribers per channel reached", .{});
                 continue;
             },
             else => {
-                try client.writeError("ERR failed to subscribe to channel");
+                try client.writeError("ERR failed to subscribe to channel", .{});
                 continue;
             },
         };
@@ -170,14 +170,14 @@ fn testSubscribe(client: *MockClient, args: []const Value) !void {
 
         // Find or create channel
         const channel_id = client.pubsub_context.findOrCreateChannel(channel_name) orelse {
-            try client.writeError("ERR maximum number of channels reached");
+            try client.writeError("ERR maximum number of channels reached", .{});
             return;
         };
 
         // Subscribe client to channel
         client.pubsub_context.subscribeToChannel(channel_id, client.client_id) catch |err| switch (err) {
             error.ChannelFull => {
-                try client.writeError("ERR maximum subscribers per channel reached");
+                try client.writeError("ERR maximum subscribers per channel reached", .{});
                 return;
             },
             else => return err,

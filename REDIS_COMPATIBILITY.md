@@ -57,11 +57,11 @@ This document outlines the compatibility of Zedis with Redis commands. The table
 | LPUSH   | Yes       | Push elements to the head of a list            |
 | RPUSH   | Yes       | Push elements to the tail of a list            |
 | LPOP    | Yes       | Remove and return the first element of a list  |
-| RPOP    | No        | Remove and return the last element of a list   |
+| RPOP    | Yes       | Remove and return the last element of a list   |
 | LLEN    | Yes       | Get the length of a list                       |
-| LINDEX  | No        | Get an element from a list by index            |
-| LSET    | No        | Set the value of an element in a list by index |
-| LRANGE  | No        | Get a range of elements from a list            |
+| LINDEX  | Yes       | Get an element from a list by index            |
+| LSET    | Yes       | Set the value of an element in a list by index |
+| LRANGE  | Yes       | Get a range of elements from a list            |
 
 ## Set Commands
 
@@ -182,10 +182,10 @@ Redis modules extend Redis functionality with custom data types and commands. Ze
 ## Summary
 
 **Total Commands**: 77
-- **Fully Implemented**: 14 commands
+- **Fully Implemented**: 18 commands
 - **Partially Implemented**: 0 commands
-- **Not Implemented**: 63 commands
+- **Not Implemented**: 59 commands
 
-**Implementation Coverage**: ~18%
+**Implementation Coverage**: ~23%
 
 This compatibility matrix will be updated as new commands are implemented in Zedis.

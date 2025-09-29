@@ -19,7 +19,7 @@ pub fn echo(client: *Client, args: []const Value) !void {
 // QUIT command implementation
 pub fn quit(client: *Client, args: []const Value) !void {
     _ = args; // Unused parameter
-    _ = try client.writer.interface.write("+OK\r\n");
+    try client.writeBulkString("OK");
     client.connection.stream.close();
 }
 
@@ -27,7 +27,7 @@ pub fn auth(client: *Client, args: []const Value) !void {
     const password = args[1].asSlice();
 
     if (!client.server.config.requiresAuth()) {
-        return client.writeError("ERR Client sent AUTH, but no password is set");
+        return client.writeError("ERR Client sent AUTH, but no password is set", .{});
     }
 
     if (std.mem.eql(u8, password, client.server.config.requirepass.?)) {
@@ -35,7 +35,7 @@ pub fn auth(client: *Client, args: []const Value) !void {
         try client.writeBulkString("OK");
     } else {
         client.authenticated = false;
-        try client.writeError("ERR invalid password");
+        try client.writeError("ERR invalid password", .{});
     }
 }
 

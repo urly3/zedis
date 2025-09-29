@@ -81,7 +81,7 @@ pub const Client = struct {
                     return err;
                 }
                 std.log.err("Parse error: {s}", .{@errorName(err)});
-                self.writeError("ERR protocol error") catch {};
+                self.writeError("ERR protocol error", .{}) catch {};
                 continue;
             };
             defer command.deinit();
@@ -107,7 +107,9 @@ pub const Client = struct {
 
     // --- RESP Writing Helpers ---
 
-    pub fn writeError(self: *Client, msg: []const u8) !void {
+    pub fn writeError(self: *Client, comptime fmt: []const u8, args: anytype) !void {
+        const msg = try std.fmt.allocPrint(self.allocator, fmt, args);
+        defer self.allocator.free(msg);
         const formatted = try std.fmt.allocPrint(self.allocator, "-{s}\r\n", .{msg});
         defer self.allocator.free(formatted);
         _ = try self.writer.interface.write(formatted);
@@ -177,5 +179,12 @@ pub const Client = struct {
 
     pub fn writeNull(self: *Client) !void {
         _ = try self.writer.interface.write("$-1\r\n");
+    }
+
+    pub fn writePrimitiveValue(self: *Client, value: PrimitiveValue) !void {
+        switch (value) {
+            .string => |str| try self.writeBulkString(str),
+            .int => |i| try self.writeInt(i),
+        }
     }
 };

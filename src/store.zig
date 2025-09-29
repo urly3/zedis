@@ -82,11 +82,40 @@ pub const ZedisList = struct {
         return value;
     }
 
-    pub fn getByIndex(self: *const ZedisList, index: usize) ?PrimitiveValue {
+    pub fn getByIndex(self: *const ZedisList, index: i64) ?PrimitiveValue {
+        const list_len = self.list.len();
+        if (list_len == 0) return null;
+
+        // Convert negative index to positive
+        const actual_index: usize = if (index < 0) blk: {
+            const neg_offset = @as(usize, @intCast(-index));
+            if (neg_offset > list_len) return null;
+            break :blk list_len - neg_offset;
+        } else blk: {
+            const pos_index = @as(usize, @intCast(index));
+            if (pos_index >= list_len) return null;
+            break :blk pos_index;
+        };
+
+        // O(1) optimization for first index
+        if (actual_index == 0) {
+            const node = self.list.first orelse return null;
+            const list_node: *ZedisListNode = @fieldParentPtr("node", node);
+            return list_node.data;
+        }
+
+        // O(1) optimization for last index
+        if (actual_index == list_len - 1) {
+            const node = self.list.last orelse return null;
+            const list_node: *ZedisListNode = @fieldParentPtr("node", node);
+            return list_node.data;
+        }
+
+        // O(n) traversal for middle indices
         var current = self.list.first;
         var i: usize = 0;
         while (current) |node| {
-            if (i == index) {
+            if (i == actual_index) {
                 const list_node: *ZedisListNode = @fieldParentPtr("node", node);
                 return list_node.data;
             }
@@ -94,6 +123,52 @@ pub const ZedisList = struct {
             i += 1;
         }
         return null;
+    }
+
+    pub fn setByIndex(self: *ZedisList, index: i64, value: PrimitiveValue) !void {
+        const list_len = self.list.len();
+        if (list_len == 0) return StoreError.KeyNotFound;
+
+        // Convert negative index to positive
+        const actual_index: usize = if (index < 0) blk: {
+            const neg_offset = @as(usize, @intCast(-index));
+            if (neg_offset > list_len) return StoreError.KeyNotFound;
+            break :blk list_len - neg_offset;
+        } else blk: {
+            const pos_index = @as(usize, @intCast(index));
+            if (pos_index >= list_len) return StoreError.KeyNotFound;
+            break :blk pos_index;
+        };
+
+        // O(1) optimization for first index
+        if (actual_index == 0) {
+            const node = self.list.first orelse return StoreError.KeyNotFound;
+            const list_node: *ZedisListNode = @fieldParentPtr("node", node);
+            list_node.data = value;
+            return;
+        }
+
+        // O(1) optimization for last index
+        if (actual_index == list_len - 1) {
+            const node = self.list.last orelse return StoreError.KeyNotFound;
+            const list_node: *ZedisListNode = @fieldParentPtr("node", node);
+            list_node.data = value;
+            return;
+        }
+
+        // O(n) traversal for middle indices
+        var current = self.list.first;
+        var i: usize = 0;
+        while (current) |node| {
+            if (i == actual_index) {
+                const list_node: *ZedisListNode = @fieldParentPtr("node", node);
+                list_node.data = value;
+                return;
+            }
+            current = node.next;
+            i += 1;
+        }
+        return StoreError.KeyNotFound;
     }
 };
 

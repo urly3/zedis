@@ -438,7 +438,6 @@ test "LLEN on empty list" {
     try testing.expectEqualStrings(":0\r\n", client.getOutput());
 }
 
-// Integration Tests
 test "Mixed LPUSH and RPUSH operations" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -534,4 +533,467 @@ test "LPOP and RPOP from the same list" {
     };
     try client.testLlen(&llen_args);
     try testing.expectEqualStrings(":1\r\n", client.getOutput());
+}
+
+// LINDEX Tests
+test "LINDEX get first element" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator);
+    defer store.deinit();
+
+    var client = MockClient.initLegacy(allocator, &store);
+    defer client.deinit();
+
+    // Create list with: one, two, three
+    const push_args = [_]Value{
+        .{ .data = "RPUSH" },
+        .{ .data = "mylist" },
+        .{ .data = "one" },
+        .{ .data = "two" },
+        .{ .data = "three" },
+    };
+    try client.testRpush(&push_args);
+    client.clearOutput();
+
+    // Get first element (index 0)
+    const lindex_args = [_]Value{
+        .{ .data = "LINDEX" },
+        .{ .data = "mylist" },
+        .{ .data = "0" },
+    };
+    try client.testLindex(&lindex_args);
+
+    try testing.expectEqualStrings("$3\r\none\r\n", client.getOutput());
+}
+
+test "LINDEX get last element with negative index" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator);
+    defer store.deinit();
+
+    var client = MockClient.initLegacy(allocator, &store);
+    defer client.deinit();
+
+    // Create list with: one, two, three
+    const push_args = [_]Value{
+        .{ .data = "RPUSH" },
+        .{ .data = "mylist" },
+        .{ .data = "one" },
+        .{ .data = "two" },
+        .{ .data = "three" },
+    };
+    try client.testRpush(&push_args);
+    client.clearOutput();
+
+    // Get last element (index -1)
+    const lindex_args = [_]Value{
+        .{ .data = "LINDEX" },
+        .{ .data = "mylist" },
+        .{ .data = "-1" },
+    };
+    try client.testLindex(&lindex_args);
+
+    try testing.expectEqualStrings("$5\r\nthree\r\n", client.getOutput());
+}
+
+test "LINDEX with out of range index" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator);
+    defer store.deinit();
+
+    var client = MockClient.initLegacy(allocator, &store);
+    defer client.deinit();
+
+    // Create list with: one
+    const push_args = [_]Value{
+        .{ .data = "RPUSH" },
+        .{ .data = "mylist" },
+        .{ .data = "one" },
+    };
+    try client.testRpush(&push_args);
+    client.clearOutput();
+
+    // Try to get element at index 10
+    const lindex_args = [_]Value{
+        .{ .data = "LINDEX" },
+        .{ .data = "mylist" },
+        .{ .data = "10" },
+    };
+    try client.testLindex(&lindex_args);
+
+    try testing.expectEqualStrings("$-1\r\n", client.getOutput());
+}
+
+test "LINDEX on non-existing list" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator);
+    defer store.deinit();
+
+    var client = MockClient.initLegacy(allocator, &store);
+    defer client.deinit();
+
+    const args = [_]Value{
+        .{ .data = "LINDEX" },
+        .{ .data = "nonexistent" },
+        .{ .data = "0" },
+    };
+
+    try client.testLindex(&args);
+
+    try testing.expectEqualStrings("$-1\r\n", client.getOutput());
+}
+
+// LSET Tests
+test "LSET update element at index" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator);
+    defer store.deinit();
+
+    var client = MockClient.initLegacy(allocator, &store);
+    defer client.deinit();
+
+    // Create list with: one, two, three
+    const push_args = [_]Value{
+        .{ .data = "RPUSH" },
+        .{ .data = "mylist" },
+        .{ .data = "one" },
+        .{ .data = "two" },
+        .{ .data = "three" },
+    };
+    try client.testRpush(&push_args);
+    client.clearOutput();
+
+    // Set element at index 1 to "TWO"
+    const lset_args = [_]Value{
+        .{ .data = "LSET" },
+        .{ .data = "mylist" },
+        .{ .data = "1" },
+        .{ .data = "TWO" },
+    };
+    try client.testLset(&lset_args);
+
+    try testing.expectEqualStrings("$2\r\nOK\r\n", client.getOutput());
+    client.clearOutput();
+
+    // Verify the element was updated
+    const lindex_args = [_]Value{
+        .{ .data = "LINDEX" },
+        .{ .data = "mylist" },
+        .{ .data = "1" },
+    };
+    try client.testLindex(&lindex_args);
+
+    try testing.expectEqualStrings("$3\r\nTWO\r\n", client.getOutput());
+}
+
+test "LSET with negative index" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator);
+    defer store.deinit();
+
+    var client = MockClient.initLegacy(allocator, &store);
+    defer client.deinit();
+
+    // Create list with: one, two, three
+    const push_args = [_]Value{
+        .{ .data = "RPUSH" },
+        .{ .data = "mylist" },
+        .{ .data = "one" },
+        .{ .data = "two" },
+        .{ .data = "three" },
+    };
+    try client.testRpush(&push_args);
+    client.clearOutput();
+
+    // Set last element using -1
+    const lset_args = [_]Value{
+        .{ .data = "LSET" },
+        .{ .data = "mylist" },
+        .{ .data = "-1" },
+        .{ .data = "THREE" },
+    };
+    try client.testLset(&lset_args);
+
+    try testing.expectEqualStrings("$2\r\nOK\r\n", client.getOutput());
+    client.clearOutput();
+
+    // Verify the last element was updated
+    const lindex_args = [_]Value{
+        .{ .data = "LINDEX" },
+        .{ .data = "mylist" },
+        .{ .data = "-1" },
+    };
+    try client.testLindex(&lindex_args);
+
+    try testing.expectEqualStrings("$5\r\nTHREE\r\n", client.getOutput());
+}
+
+test "LSET on non-existing key" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator);
+    defer store.deinit();
+
+    var client = MockClient.initLegacy(allocator, &store);
+    defer client.deinit();
+
+    const args = [_]Value{
+        .{ .data = "LSET" },
+        .{ .data = "nonexistent" },
+        .{ .data = "0" },
+        .{ .data = "value" },
+    };
+
+    try client.testLset(&args);
+
+    try testing.expectEqualStrings("-ERR no such key\r\n", client.getOutput());
+}
+
+test "LSET with out of range index" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator);
+    defer store.deinit();
+
+    var client = MockClient.initLegacy(allocator, &store);
+    defer client.deinit();
+
+    // Create list with: one
+    const push_args = [_]Value{
+        .{ .data = "RPUSH" },
+        .{ .data = "mylist" },
+        .{ .data = "one" },
+    };
+    try client.testRpush(&push_args);
+    client.clearOutput();
+
+    // Try to set element at index 10
+    const lset_args = [_]Value{
+        .{ .data = "LSET" },
+        .{ .data = "mylist" },
+        .{ .data = "10" },
+        .{ .data = "value" },
+    };
+    try client.testLset(&lset_args);
+
+    try testing.expectEqualStrings("-ERR no such key\r\n", client.getOutput());
+}
+
+// LRANGE Tests
+test "LRANGE get all elements" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator);
+    defer store.deinit();
+
+    var client = MockClient.initLegacy(allocator, &store);
+    defer client.deinit();
+
+    // Create list with: one, two, three
+    const push_args = [_]Value{
+        .{ .data = "RPUSH" },
+        .{ .data = "mylist" },
+        .{ .data = "one" },
+        .{ .data = "two" },
+        .{ .data = "three" },
+    };
+    try client.testRpush(&push_args);
+    client.clearOutput();
+
+    // Get all elements (0 to -1)
+    const lrange_args = [_]Value{
+        .{ .data = "LRANGE" },
+        .{ .data = "mylist" },
+        .{ .data = "0" },
+        .{ .data = "-1" },
+    };
+    try client.testLrange(&lrange_args);
+
+    try testing.expectEqualStrings("*3\r\n$3\r\none\r\n$3\r\ntwo\r\n$5\r\nthree\r\n", client.getOutput());
+}
+
+test "LRANGE get subset of elements" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator);
+    defer store.deinit();
+
+    var client = MockClient.initLegacy(allocator, &store);
+    defer client.deinit();
+
+    // Create list with: one, two, three, four, five
+    const push_args = [_]Value{
+        .{ .data = "RPUSH" },
+        .{ .data = "mylist" },
+        .{ .data = "one" },
+        .{ .data = "two" },
+        .{ .data = "three" },
+        .{ .data = "four" },
+        .{ .data = "five" },
+    };
+    try client.testRpush(&push_args);
+    client.clearOutput();
+
+    // Get elements from index 1 to 3
+    const lrange_args = [_]Value{
+        .{ .data = "LRANGE" },
+        .{ .data = "mylist" },
+        .{ .data = "1" },
+        .{ .data = "3" },
+    };
+    try client.testLrange(&lrange_args);
+
+    try testing.expectEqualStrings("*3\r\n$3\r\ntwo\r\n$5\r\nthree\r\n$4\r\nfour\r\n", client.getOutput());
+}
+
+test "LRANGE with negative indices" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator);
+    defer store.deinit();
+
+    var client = MockClient.initLegacy(allocator, &store);
+    defer client.deinit();
+
+    // Create list with: one, two, three, four, five
+    const push_args = [_]Value{
+        .{ .data = "RPUSH" },
+        .{ .data = "mylist" },
+        .{ .data = "one" },
+        .{ .data = "two" },
+        .{ .data = "three" },
+        .{ .data = "four" },
+        .{ .data = "five" },
+    };
+    try client.testRpush(&push_args);
+    client.clearOutput();
+
+    // Get last 2 elements (-2 to -1)
+    const lrange_args = [_]Value{
+        .{ .data = "LRANGE" },
+        .{ .data = "mylist" },
+        .{ .data = "-2" },
+        .{ .data = "-1" },
+    };
+    try client.testLrange(&lrange_args);
+
+    try testing.expectEqualStrings("*2\r\n$4\r\nfour\r\n$4\r\nfive\r\n", client.getOutput());
+}
+
+test "LRANGE on non-existing list" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator);
+    defer store.deinit();
+
+    var client = MockClient.initLegacy(allocator, &store);
+    defer client.deinit();
+
+    const args = [_]Value{
+        .{ .data = "LRANGE" },
+        .{ .data = "nonexistent" },
+        .{ .data = "0" },
+        .{ .data = "-1" },
+    };
+
+    try client.testLrange(&args);
+
+    try testing.expectEqualStrings("*0\r\n", client.getOutput());
+}
+
+test "LRANGE with out of range indices" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator);
+    defer store.deinit();
+
+    var client = MockClient.initLegacy(allocator, &store);
+    defer client.deinit();
+
+    // Create list with: one, two
+    const push_args = [_]Value{
+        .{ .data = "RPUSH" },
+        .{ .data = "mylist" },
+        .{ .data = "one" },
+        .{ .data = "two" },
+    };
+    try client.testRpush(&push_args);
+    client.clearOutput();
+
+    // Try to get elements from 10 to 20 (out of range)
+    const lrange_args = [_]Value{
+        .{ .data = "LRANGE" },
+        .{ .data = "mylist" },
+        .{ .data = "10" },
+        .{ .data = "20" },
+    };
+    try client.testLrange(&lrange_args);
+
+    try testing.expectEqualStrings("*0\r\n", client.getOutput());
+}
+
+test "LRANGE with reversed range" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator);
+    defer store.deinit();
+
+    var client = MockClient.initLegacy(allocator, &store);
+    defer client.deinit();
+
+    // Create list with: one, two, three
+    const push_args = [_]Value{
+        .{ .data = "RPUSH" },
+        .{ .data = "mylist" },
+        .{ .data = "one" },
+        .{ .data = "two" },
+        .{ .data = "three" },
+    };
+    try client.testRpush(&push_args);
+    client.clearOutput();
+
+    // Try reversed range (start > stop)
+    const lrange_args = [_]Value{
+        .{ .data = "LRANGE" },
+        .{ .data = "mylist" },
+        .{ .data = "2" },
+        .{ .data = "1" },
+    };
+    try client.testLrange(&lrange_args);
+
+    try testing.expectEqualStrings("*0\r\n", client.getOutput());
 }

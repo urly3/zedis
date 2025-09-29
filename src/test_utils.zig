@@ -1,6 +1,7 @@
 const std = @import("std");
 const Store = @import("store.zig").Store;
 const Value = @import("parser.zig").Value;
+const PrimitiveValue = @import("store.zig").PrimitiveValue;
 
 pub const MockClient = struct {
     client_id: u64,
@@ -64,12 +65,21 @@ pub const MockClient = struct {
         try self.output.appendSlice("$-1\r\n");
     }
 
-    pub fn writeError(self: *MockClient, err_msg: []const u8) !void {
-        try self.output.writer().print("-{s}\r\n", .{err_msg});
+    pub fn writeError(self: *MockClient, comptime fmt: []const u8, args: anytype) !void {
+        try self.output.appendSlice("-");
+        try self.output.writer().print(fmt, args);
+        try self.output.appendSlice("\r\n");
     }
 
     pub fn writeInt(self: *MockClient, num: anytype) !void {
         try self.output.writer().print(":{d}\r\n", .{num});
+    }
+
+    pub fn writePrimitiveValue(self: *MockClient, value: PrimitiveValue) !void {
+        switch (value) {
+            .string => |s| try self.writeBulkString(s),
+            .int => |i| try self.writeIntAsString(i),
+        }
     }
 
     pub fn getOutput(self: *MockClient) []const u8 {
@@ -126,7 +136,7 @@ pub const MockClient = struct {
             switch (v.value) {
                 .string => |s| {
                     new_value = std.fmt.parseInt(i64, s, 10) catch {
-                        try self.writeError("ERR value is not an integer or out of range");
+                        try self.writeError("ERR value is not an integer or out of range", .{});
                         return;
                     };
                     new_value += 1;
@@ -135,7 +145,7 @@ pub const MockClient = struct {
                     new_value = i + 1;
                 },
                 .list => {
-                    try self.writeError("ERR value is not an integer or out of range");
+                    try self.writeError("ERR value is not an integer or out of range", .{});
                     return;
                 },
             }
@@ -158,7 +168,7 @@ pub const MockClient = struct {
             switch (v.value) {
                 .string => |s| {
                     new_value = std.fmt.parseInt(i64, s, 10) catch {
-                        try self.writeError("ERR value is not an integer or out of range");
+                        try self.writeError("ERR value is not an integer or out of range", .{});
                         return;
                     };
                     new_value -= 1;
@@ -167,7 +177,7 @@ pub const MockClient = struct {
                     new_value = i - 1;
                 },
                 .list => {
-                    try self.writeError("ERR value is not an integer or out of range");
+                    try self.writeError("ERR value is not an integer or out of range", .{});
                     return;
                 },
             }
@@ -315,6 +325,108 @@ pub const MockClient = struct {
             try self.writeInt(l.len());
         } else {
             try self.writeInt(0);
+        }
+    }
+
+    pub fn testLindex(self: *MockClient, args: []const Value) !void {
+        const key = args[1].asSlice();
+        const index = try args[2].asInt();
+        const list = try self.store.getList(key) orelse {
+            try self.writeNull();
+            return;
+        };
+
+        const item = list.getByIndex(index) orelse {
+            try self.writeNull();
+            return;
+        };
+
+        try self.writePrimitiveValue(item);
+    }
+
+    pub fn testLset(self: *MockClient, args: []const Value) !void {
+        const key = args[1].asSlice();
+        const index = try args[2].asInt();
+        const value = args[3].asSlice();
+
+        const list = try self.store.getList(key) orelse {
+            try self.writeError("ERR no such key", .{});
+            return;
+        };
+
+        list.setByIndex(index, .{ .string = value }) catch {
+            try self.writeError("ERR no such key", .{});
+            return;
+        };
+
+        try self.writeBulkString("OK");
+    }
+
+    pub fn testLrange(self: *MockClient, args: []const Value) !void {
+        const key = args[1].asSlice();
+        const start = try args[2].asInt();
+        const stop = try args[3].asInt();
+
+        const list = try self.store.getList(key) orelse {
+            try self.writeListLen(0);
+            return;
+        };
+
+        const list_len = list.len();
+        if (list_len == 0) {
+            try self.writeListLen(0);
+            return;
+        }
+
+        // Convert negative indices to positive and clamp to valid range
+        const actual_start: usize = if (start < 0) blk: {
+            const neg_offset = @as(usize, @intCast(-start));
+            if (neg_offset > list_len) {
+                break :blk 0;
+            }
+            break :blk list_len - neg_offset;
+        } else blk: {
+            const pos_index = @as(usize, @intCast(start));
+            if (pos_index >= list_len) {
+                try self.writeListLen(0);
+                return;
+            }
+            break :blk pos_index;
+        };
+
+        const actual_stop: usize = if (stop < 0) blk: {
+            const neg_offset = @as(usize, @intCast(-stop));
+            if (neg_offset > list_len) {
+                break :blk 0;
+            }
+            break :blk list_len - neg_offset;
+        } else blk: {
+            const pos_index = @as(usize, @intCast(stop));
+            if (pos_index >= list_len) {
+                break :blk list_len - 1;
+            }
+            break :blk pos_index;
+        };
+
+        // Handle invalid range
+        if (actual_start > actual_stop) {
+            try self.writeListLen(0);
+            return;
+        }
+
+        const count = actual_stop - actual_start + 1;
+        try self.writeListLen(count);
+
+        // Stream items directly
+        var current = list.list.first;
+        var i: usize = 0;
+        while (current) |node| : (i += 1) {
+            if (i >= actual_start and i <= actual_stop) {
+                const list_node: *const @import("store.zig").ZedisListNode = @fieldParentPtr("node", node);
+                try self.writePrimitiveValue(list_node.data);
+            }
+            if (i > actual_stop) break;
+            current = node.next;
         }
     }
 

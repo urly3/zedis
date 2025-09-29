@@ -74,10 +74,10 @@ pub fn incr(client: *Client, args: []const Value) !void {
     const key = args[1].asSlice();
     const new_value = incrDecr(client.store, key, 1) catch |err| switch (err) {
         StringCommandError.WrongType => |e| {
-            return client.writeError(getErrorMessage(e));
+            return client.writeError("{s}", .{getErrorMessage(e)});
         },
         StringCommandError.ValueNotInteger => |e| {
-            return client.writeError(getErrorMessage(e));
+            return client.writeError("{s}", .{getErrorMessage(e)});
         },
         StringCommandError.KeyNotFound => {
             // For INCR on non-existent key, Redis creates it with value 0 then increments
@@ -99,10 +99,10 @@ pub fn decr(client: *Client, args: []const Value) !void {
     const key = args[1].asSlice();
     const new_value = incrDecr(client.store, key, -1) catch |err| switch (err) {
         StringCommandError.WrongType => {
-            return client.writeError("ERR value is not an integer or out of range");
+            return client.writeError("ERR value is not an integer or out of range", .{});
         },
         StringCommandError.ValueNotInteger => {
-            return client.writeError("ERR value is not an integer or out of range");
+            return client.writeError("ERR value is not an integer or out of range", .{});
         },
         StringCommandError.KeyNotFound => {
             // For DECR on non-existent key, Redis creates it with value 0 then decrements

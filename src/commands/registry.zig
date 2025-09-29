@@ -44,7 +44,7 @@ pub const CommandRegistry = struct {
 
     pub fn executeCommand(self: *CommandRegistry, client: *Client, args: []const Value) !void {
         if (args.len == 0) {
-            return client.writeError("ERR empty command");
+            return client.writeError("ERR empty command", .{});
         }
 
         const command_name = args[0].asSlice();
@@ -62,17 +62,17 @@ pub const CommandRegistry = struct {
             !std.mem.eql(u8, upper_name, "PING") and
             !client.isAuthenticated())
         {
-            return client.writeError("NOAUTH Authentication required");
+            return client.writeError("NOAUTH Authentication required", .{});
         }
 
         if (self.get(upper_name)) |cmd_info| {
             // Validate argument count
             if (args.len < cmd_info.min_args) {
-                return client.writeError("ERR wrong number of arguments");
+                return client.writeError("ERR wrong number of arguments", .{});
             }
             if (cmd_info.max_args) |max_args| {
                 if (args.len > max_args) {
-                    return client.writeError("ERR wrong number of arguments");
+                    return client.writeError("ERR wrong number of arguments", .{});
                 }
             }
 
@@ -81,9 +81,10 @@ pub const CommandRegistry = struct {
                     cmd_info.name,
                     @errorName(err),
                 });
+                return client.writeError("ERR {s} while processing command '{s}'", .{ @errorName(err), cmd_info.name });
             };
         } else {
-            return client.writeError("ERR unknown command");
+            return client.writeError("ERR unknown command", .{});
         }
     }
 };
