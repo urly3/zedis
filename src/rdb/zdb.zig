@@ -241,12 +241,12 @@ pub const Reader = struct {
         return true;
     }
 
-    pub fn deinit(self: Reader) void {
+    pub fn deinit(self: *Reader) void {
         self.allocator.free(self.buffer);
         self.file.close();
     }
 
-    pub fn readFile(self: Reader) !RdbReaderOutput {
+    pub fn readFile(self: *Reader) !RdbReaderOutput {
         var output: RdbReaderOutput = .{
             .rdb_version = undefined,
             .redis_version = undefined,
@@ -258,15 +258,14 @@ pub const Reader = struct {
             .resize_db_expiration = undefined,
             .select_db = undefined,
         };
-        var reader = self.reader;
-        const magic_string = try reader.interface.takeArray(5);
+        const magic_string = try self.reader.interface.takeArray(5);
         assert(magic_string, MAGIC_STRING);
 
-        const rdb_version = try reader.interface.takeArray(4);
+        const rdb_version = try self.reader.interface.takeArray(4);
         output.rdb_version = rdb_version;
 
         while (true) {
-            const byte = try reader.interface.takeByte();
+            const byte = try self.reader.interface.takeByte();
 
             switch (byte) {
                 OPCODE_AUX => {
@@ -293,8 +292,8 @@ pub const Reader = struct {
                 },
 
                 OPCODE_EXPIRE_TIME_MS => {
-                    const expiration = try reader.interface.takeInt(u64, .little);
-                    const op_code = try reader.interface.takeByte();
+                    const expiration = try self.reader.interface.takeInt(u64, .little);
+                    const op_code = try self.reader.interface.takeByte();
                     // TODO Load expiration time
                     _ = expiration;
                     _ = op_code;
@@ -314,7 +313,7 @@ pub const Reader = struct {
         return output;
     }
 
-    fn readEntry(self: Reader) !void {
+    fn readEntry(self: *Reader) !void {
         const key = try self.readString();
         const value = try self.genericRead();
 
@@ -325,9 +324,8 @@ pub const Reader = struct {
         std.debug.assert(std.mem.eql(u8, incoming_byes, expected));
     }
 
-    fn readLength(self: Reader) !u64 {
-        var reader = self.reader;
-        const first_byte = try reader.interface.takeByte();
+    fn readLength(self: *Reader) !u64 {
+        const first_byte = try self.reader.interface.takeByte();
 
         switch (first_byte) {
             // Case 1: Bits are 00xxxxxx. The length IS the lower 6 bits.
@@ -342,33 +340,32 @@ pub const Reader = struct {
                 const high_part: u64 = @as(u64, first_byte & 0x3F);
 
                 // The low 8 bits of the length are the entire next byte.
-                const low_part: u64 = try reader.interface.takeByte();
+                const low_part: u64 = try self.reader.interface.takeByte();
 
                 // Combine them: (high_bits << 8) | low_bits
                 return (high_part << 8) | low_part;
             },
             LEN_PREFIX_32_INT => {
-                return try reader.interface.takeInt(u32, .big);
+                return try self.reader.interface.takeInt(u32, .big);
             },
             LEN_PREFIX_64_INT => {
-                return try reader.interface.takeInt(u64, .big);
+                return try self.reader.interface.takeInt(u64, .big);
             },
             else => return ReaderError.UnknownLengthPrefix,
         }
     }
 
-    fn readInt(self: Reader) !i64 {
-        var reader = self.reader;
-        const first_byte = try reader.interface.takeByte();
+    fn readInt(self: *Reader) !i64 {
+        const first_byte = try self.reader.interface.takeByte();
         switch (first_byte) {
             INT_PREFIX_8_BITS => {
-                return try reader.interface.takeInt(i8, .little);
+                return try self.reader.interface.takeInt(i8, .little);
             },
             INT_PREFIX_16_BITS => {
-                return try reader.interface.takeInt(i16, .little);
+                return try self.reader.interface.takeInt(i16, .little);
             },
             INT_PREFIX_32_BITS => {
-                return try reader.interface.takeInt(i32, .little);
+                return try self.reader.interface.takeInt(i32, .little);
             },
 
             else => {
@@ -378,15 +375,13 @@ pub const Reader = struct {
         }
     }
 
-    fn readString(self: Reader) ![]u8 {
-        var reader = self.reader;
+    fn readString(self: *Reader) ![]u8 {
         const len = try self.readLength();
-        return reader.interface.take(len);
+        return self.reader.interface.take(len);
     }
 
-    fn genericRead(self: Reader) !ZedisValue {
-        var reader = self.reader;
-        const first_byte = try reader.interface.peekByte();
+    fn genericRead(self: *Reader) !ZedisValue {
+        const first_byte = try self.reader.interface.peekByte();
 
         switch (first_byte) {
             INT_PREFIX_8_BITS, INT_PREFIX_16_BITS, INT_PREFIX_32_BITS => {
