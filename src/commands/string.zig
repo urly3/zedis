@@ -11,6 +11,14 @@ pub const StringCommandError = error{
     KeyNotFound,
 };
 
+fn getErrorMessage(err: StringCommandError) []const u8 {
+    return switch (err) {
+        StringCommandError.WrongType => "WRONGTYPE Operation against a key holding the wrong kind of value",
+        StringCommandError.ValueNotInteger => "ERR value is not an integer or out of range",
+        StringCommandError.KeyNotFound => "ERR key not found",
+    };
+}
+
 pub fn set(client: *Client, args: []const Value) !void {
     const key = args[1].asSlice();
     const value = args[2].asSlice();
@@ -38,6 +46,24 @@ pub fn get(client: *Client, args: []const Value) !void {
                 defer client.allocator.free(int_str);
                 try client.writeBulkString(int_str);
             },
+            .list => |*list| {
+                var current = list.list.first;
+                while (current) |node| {
+                    const list_node: *const @import("../store.zig").ZedisListNode = @fieldParentPtr("node", node);
+                    const entry = list_node.data;
+
+                    switch (entry) {
+                        .string => |str| try client.writeBulkString(str),
+                        .int => |i| {
+                            const int_str = try std.fmt.allocPrint(client.allocator, "{d}", .{i});
+                            defer client.allocator.free(int_str);
+                            try client.writeBulkString(int_str);
+                        },
+                    }
+
+                    current = node.next;
+                }
+            },
         }
     } else {
         try client.writeNull();
@@ -47,11 +73,11 @@ pub fn get(client: *Client, args: []const Value) !void {
 pub fn incr(client: *Client, args: []const Value) !void {
     const key = args[1].asSlice();
     const new_value = incrDecr(client.store, key, 1) catch |err| switch (err) {
-        StringCommandError.WrongType => {
-            return client.writeError("ERR value is not an integer or out of range");
+        StringCommandError.WrongType => |e| {
+            return client.writeError(getErrorMessage(e));
         },
-        StringCommandError.ValueNotInteger => {
-            return client.writeError("ERR value is not an integer or out of range");
+        StringCommandError.ValueNotInteger => |e| {
+            return client.writeError(getErrorMessage(e));
         },
         StringCommandError.KeyNotFound => {
             // For INCR on non-existent key, Redis creates it with value 0 then increments
@@ -113,11 +139,11 @@ fn incrDecr(store_ptr: *Store, key: []const u8, value: i64) !i64 {
                     return StringCommandError.ValueNotInteger;
                 };
             },
+            else => return StringCommandError.ValueNotInteger,
         }
 
-        // Use the unsafe method since we already have the lock
         const int_object = ZedisObject{ .value = .{ .int = new_value } };
-        try store_ptr.setObjectUnsafe(key, int_object);
+        try store_ptr.setObject(key, int_object);
 
         return new_value;
     } else {

@@ -11,26 +11,30 @@ pub const Value = struct {
     pub fn asInt(self: Value) std.fmt.ParseIntError!i64 {
         return std.fmt.parseInt(i64, self.data, 10);
     }
+
+    pub fn asUsize(self: Value) std.fmt.ParseIntError!usize {
+        return std.fmt.parseInt(usize, self.data, 10);
+    }
 };
 
 // Represents a parsed command, which is an array of values.
 pub const Command = struct {
-    args: std.ArrayList(Value),
+    args: std.array_list.Managed(Value),
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) Command {
         return Command{
-            .args = std.ArrayList(Value){},
+            .args = std.array_list.Managed(Value).init(allocator),
             .allocator = allocator,
         };
     }
 
     pub fn deinit(self: *Command) void {
-        self.args.clearAndFree(self.allocator);
+        self.args.deinit();
     }
 
     pub fn addArg(self: *Command, value: Value) !void {
-        try self.args.append(self.allocator, value);
+        try self.args.append(value);
     }
 };
 

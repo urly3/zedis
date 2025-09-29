@@ -5,6 +5,7 @@ const ZedisObject = storeModule.ZedisObject;
 const Store = storeModule.Store;
 const ZedisValue = storeModule.ZedisValue;
 const ValueType = storeModule.ValueType;
+const ZedisList = storeModule.ZedisList;
 const fs = std.fs;
 const eql = std.mem.eql;
 
@@ -32,6 +33,7 @@ const INT_PREFIX_32_BITS = 0xC2;
 const VALUE_TYPE_STR = 0x00;
 
 pub const RdbWriteError = error{ StringTooLarge, NumberTooLarge };
+pub const RdbError = RdbWriteError || std.fs.File.WriteError || error{WriteFailed};
 
 pub const Writer = struct {
     allocator: std.mem.Allocator,
@@ -41,11 +43,10 @@ pub const Writer = struct {
     writer: std.fs.File.Writer,
 
     fn mapToOpCode(val: ZedisValue) u8 {
-        switch (val) {
-            .int, .string => {
-                return 0x00;
-            },
-        }
+        return switch (val) {
+            .int, .string => 0x00,
+            .list => 0x01,
+        };
     }
 
     pub fn init(allocator: std.mem.Allocator, store: *Store, fileName: []const u8) !Writer {
@@ -145,11 +146,12 @@ pub const Writer = struct {
             switch (entry.value_ptr.*.value) {
                 .int => |i| try self.writeInt(i),
                 .string => |s| try self.writeString(s),
+                .list => |list| try self.writeList(@constCast(&list)),
             }
         }
     }
 
-    fn writeLength(self: *Writer, len: u64) !void {
+    fn writeLength(self: *Writer, len: u64) RdbError!void {
         if (len <= 63) { // 6-bit
             try self.writer.interface.writeByte(@as(u8, @truncate(len)));
         } else if (len <= 16383) { // 14-bit
@@ -166,12 +168,30 @@ pub const Writer = struct {
         }
     }
 
-    fn writeString(self: *Writer, str: []const u8) !void {
+    fn writeString(self: *Writer, str: []const u8) RdbError!void {
         try self.writeLength(str.len);
         try self.writer.interface.writeAll(str);
     }
 
-    fn writeInt(self: *Writer, number: i64) !void {
+    fn writeList(self: *Writer, list: *ZedisList) RdbError!void {
+        const len = list.len();
+        try self.writeLength(len);
+
+        var current = list.list.first;
+        while (current) |node| {
+            const list_node: *storeModule.ZedisListNode = @fieldParentPtr("node", node);
+            const value = list_node.data;
+
+            switch (value) {
+                .int => |i| try self.writeInt(i),
+                .string => |s| try self.writeString(s),
+            }
+
+            current = node.next;
+        }
+    }
+
+    fn writeInt(self: *Writer, number: i64) RdbError!void {
         if (number >= std.math.minInt(i8) and number <= std.math.maxInt(i8)) {
             // Can fit in i8
             try self.writer.interface.writeByte(INT_PREFIX_8_BITS);
@@ -193,10 +213,11 @@ pub const Writer = struct {
         }
     }
 
-    fn genericWrite(self: *Writer, payload: ZedisValue) !void {
+    fn genericWrite(self: *Writer, payload: ZedisValue) RdbError!void {
         switch (payload) {
             .int => |number| try self.writeInt(number),
             .string => |str| try self.writeString(str),
+            .list => |list| try self.writeList(@constCast(&list)),
         }
     }
 };

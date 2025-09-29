@@ -3,6 +3,7 @@ const Store = @import("../store.zig").Store;
 const ZedisObject = @import("../store.zig").ZedisObject;
 const ZedisValue = @import("../store.zig").ZedisValue;
 const ValueType = @import("../store.zig").ValueType;
+const StoreError = @import("../store.zig").StoreError;
 const testing = std.testing;
 
 test "Store init and deinit" {
@@ -392,4 +393,176 @@ test "Store zero integer values" {
     const str_result = try store.getString(allocator, "zero");
     try testing.expect(str_result != null);
     try testing.expectEqualStrings("0", str_result.?);
+}
+
+test "Store createList and getList" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator);
+    defer store.deinit();
+
+    try testing.expect(try store.getList("mylist") == null);
+
+    const list = try store.createList("mylist");
+    try testing.expectEqual(@as(usize, 0), list.len());
+
+    const retrieved_list = try store.getList("mylist");
+    try testing.expect(retrieved_list != null);
+    try testing.expectEqual(@as(usize, 0), retrieved_list.?.len());
+}
+
+test "Store list append and insert operations" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator);
+    defer store.deinit();
+
+    const list = try store.createList("test_append_insert");
+
+    try testing.expectEqual(@as(usize, 0), list.len());
+
+    try list.append( .{ .string = "first" });
+    try testing.expectEqual(@as(usize, 1), list.len());
+    try testing.expectEqualStrings("first", list.getByIndex( 0).?.string);
+
+    try list.append( .{ .string = "second" });
+    try testing.expectEqual(@as(usize, 2), list.len());
+    try testing.expectEqualStrings("second", list.getByIndex( 1).?.string);
+
+    try list.prepend(.{ .string = "zero" });
+    try testing.expectEqual(@as(usize, 3), list.len());
+    try testing.expectEqualStrings("zero", list.getByIndex( 0).?.string);
+    try testing.expectEqualStrings("first", list.getByIndex( 1).?.string);
+    try testing.expectEqualStrings("second", list.getByIndex( 2).?.string);
+}
+
+test "Store list with mixed value types" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator);
+    defer store.deinit();
+
+    const list = try store.createList("test_mixed_values");
+
+    try list.append(.{ .string = "hello" });
+    try list.append(.{ .int = 42 });
+    try list.append(.{ .string = "world" });
+
+    try testing.expectEqual(@as(usize, 3), list.len());
+    try testing.expectEqualStrings("hello", list.getByIndex( 0).?.string);
+    try testing.expectEqual(@as(i64, 42), list.getByIndex( 1).?.int);
+    try testing.expectEqualStrings("world", list.getByIndex( 2).?.string);
+}
+
+test "Store getList with wrong type" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator);
+    defer store.deinit();
+
+    try store.setString("notalist", "hello");
+
+    const list = store.getList("notalist");
+    try testing.expect(list == StoreError.WrongType);
+}
+
+test "Store list type checking" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator);
+    defer store.deinit();
+
+    _ = try store.createList("mylist");
+    try testing.expectEqual(ValueType.list, store.getType("mylist").?);
+}
+
+test "Store overwrite string with list" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator);
+    defer store.deinit();
+
+    try store.setString("key1", "hello");
+    try testing.expectEqual(ValueType.string, store.getType("key1").?);
+
+    _ = try store.createList("key1");
+    try testing.expectEqual(ValueType.list, store.getType("key1").?);
+
+    const list = try store.getList("key1");
+    try testing.expect(list != null);
+    try testing.expectEqual(@as(usize, 0), list.?.len());
+}
+
+test "Store overwrite list with string" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator);
+    defer store.deinit();
+
+    const list = try store.createList("key1");
+    try list.append( .{ .string = "item" });
+    try testing.expectEqual(ValueType.list, store.getType("key1").?);
+
+    try store.setString("key1", "hello");
+    try testing.expectEqual(ValueType.string, store.getType("key1").?);
+    try testing.expectEqualStrings("hello", store.get("key1").?.value.string);
+
+    const retrieved_list = store.getList("key1");
+    try testing.expect(retrieved_list == StoreError.WrongType);
+}
+
+test "Store delete list key" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator);
+    defer store.deinit();
+
+    const list = try store.createList("mylist");
+    try list.append( .{ .string = "item1" });
+    try list.append( .{ .string = "item2" });
+
+    try testing.expect(store.exists("mylist"));
+    try testing.expectEqual(@as(u32, 1), store.size());
+
+    const deleted = store.delete("mylist");
+    try testing.expect(deleted);
+    try testing.expect(!store.exists("mylist"));
+    try testing.expectEqual(@as(u32, 0), store.size());
+    try testing.expect(try store.getList("mylist") == null);
+}
+
+test "Store empty list operations" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var store = Store.init(allocator);
+    defer store.deinit();
+
+    const list = try store.createList("test_empty_ops");
+    try testing.expectEqual(@as(usize, 0), list.len());
+
+    try list.append( .{ .string = "" });
+    try testing.expectEqual(@as(usize, 1), list.len());
+    try testing.expectEqualStrings("", list.getByIndex( 0).?.string);
+
+    try list.append( .{ .int = 0 });
+    try testing.expectEqual(@as(usize, 2), list.len());
+    try testing.expectEqual(@as(i64, 0), list.getByIndex( 1).?.int);
 }

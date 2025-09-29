@@ -7,10 +7,11 @@ const ConnectionContext = types.ConnectionContext;
 const Client = @import("client.zig").Client;
 const CommandRegistry = @import("./commands/registry.zig").CommandRegistry;
 const connection_commands = @import("./commands/connection.zig");
-const Reader = @import("./rdb/zdb.zig").Reader;
-const Store = @import("store.zig").Store;
 const string = @import("./commands/string.zig");
 const rdb = @import("./commands/rdb.zig");
+const list = @import("./commands/list.zig");
+const Reader = @import("./rdb/zdb.zig").Reader;
+const Store = @import("store.zig").Store;
 const pubsub = @import("./pubsub/pubsub.zig");
 const PubSubContext = pubsub.PubSubContext;
 const server_config = @import("server_config.zig");
@@ -268,6 +269,40 @@ pub const Server = struct {
             .min_args = 2,
             .max_args = 2,
             .description = "Authenticate to the server",
+        });
+
+        // List commands: LPUSH, RPUSH, LPOP, RPOP, LLEN, LRANGE
+
+        try registry.register(.{
+            .name = "LPUSH",
+            .handler = list.lpush,
+            .min_args = 3,
+            .max_args = null,
+            .description = "Prepend one or multiple values to a list",
+        });
+
+        try registry.register(.{
+            .name = "RPUSH",
+            .handler = list.rpush,
+            .min_args = 3,
+            .max_args = null,
+            .description = "Append one or multiple values to a list",
+        });
+
+        try registry.register(.{
+            .name = "LPOP",
+            .handler = list.lpop,
+            .min_args = 2,
+            .max_args = 3,
+            .description = "Remove and return the first element of a list",
+        });
+
+        try registry.register(.{
+            .name = "LLEN",
+            .handler = list.llen,
+            .min_args = 2,
+            .max_args = 2,
+            .description = "Get the length of a list",
         });
 
         return registry;

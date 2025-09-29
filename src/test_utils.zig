@@ -7,7 +7,7 @@ pub const MockClient = struct {
     allocator: std.mem.Allocator,
     store: *Store,
     pubsub_context: *MockPubSubContext,
-    output: std.ArrayList(u8),
+    output: std.array_list.Managed(u8),
 
     pub fn init(allocator: std.mem.Allocator, store: *Store, pubsub_context: *MockPubSubContext) MockClient {
         return MockClient{
@@ -15,7 +15,7 @@ pub const MockClient = struct {
             .allocator = allocator,
             .store = store,
             .pubsub_context = pubsub_context,
-            .output = std.ArrayList(u8){},
+            .output = std.array_list.Managed(u8).init(allocator),
         };
     }
 
@@ -27,7 +27,7 @@ pub const MockClient = struct {
             .channels = [_]?[]const u8{null} ** 8,
             .subscribers = [_][16]u64{[_]u64{0} ** 16} ** 8,
             .subscriber_counts = [_]u32{0} ** 8,
-            .clients = std.ArrayList(*MockClient){},
+            .clients = std.array_list.Managed(*MockClient).init(allocator),
             .channel_count = 0,
         };
 
@@ -38,7 +38,7 @@ pub const MockClient = struct {
             .allocator = allocator,
             .store = store,
             .pubsub_context = &dummy_context,
-            .output = std.ArrayList(u8){},
+            .output = std.array_list.Managed(u8).init(allocator),
         };
     }
 
@@ -48,28 +48,28 @@ pub const MockClient = struct {
             .allocator = allocator,
             .store = store,
             .pubsub_context = pubsub_context,
-            .output = std.ArrayList(u8){},
+            .output = std.array_list.Managed(u8).init(allocator),
         };
     }
 
     pub fn deinit(self: *MockClient) void {
-        self.output.deinit(self.allocator);
+        self.output.deinit();
     }
 
     pub fn writeBulkString(self: *MockClient, str: []const u8) !void {
-        try self.output.print(self.allocator, "${d}\r\n{s}\r\n", .{ str.len, str });
+        try self.output.writer().print("${d}\r\n{s}\r\n", .{ str.len, str });
     }
 
     pub fn writeNull(self: *MockClient) !void {
-        try self.output.appendSlice(self.allocator, "$-1\r\n");
+        try self.output.appendSlice("$-1\r\n");
     }
 
     pub fn writeError(self: *MockClient, err_msg: []const u8) !void {
-        try self.output.print(self.allocator, "-{s}\r\n", .{err_msg});
+        try self.output.writer().print("-{s}\r\n", .{err_msg});
     }
 
     pub fn writeInt(self: *MockClient, num: anytype) !void {
-        try self.output.print(self.allocator, ":{d}\r\n", .{num});
+        try self.output.writer().print(":{d}\r\n", .{num});
     }
 
     pub fn getOutput(self: *MockClient) []const u8 {
@@ -93,7 +93,7 @@ pub const MockClient = struct {
             try self.store.setString(key, value);
         }
 
-        try self.output.appendSlice(self.allocator, "+OK\r\n");
+        try self.output.appendSlice("+OK\r\n");
     }
 
     pub fn testGet(self: *MockClient, args: []const Value) !void {
@@ -108,6 +108,7 @@ pub const MockClient = struct {
                     defer self.allocator.free(int_str);
                     try self.writeBulkString(int_str);
                 },
+                .list => try self.writeNull(), // Lists not supported in GET
             }
         } else {
             try self.writeNull();
@@ -132,6 +133,10 @@ pub const MockClient = struct {
                 },
                 .int => |i| {
                     new_value = i + 1;
+                },
+                .list => {
+                    try self.writeError("ERR value is not an integer or out of range");
+                    return;
                 },
             }
         }
@@ -161,6 +166,10 @@ pub const MockClient = struct {
                 .int => |i| {
                     new_value = i - 1;
                 },
+                .list => {
+                    try self.writeError("ERR value is not an integer or out of range");
+                    return;
+                },
             }
         }
 
@@ -183,13 +192,13 @@ pub const MockClient = struct {
 
     pub fn writeTupleAsArray(self: *MockClient, items: anytype) !void {
         const fields = std.meta.fields(@TypeOf(items));
-        try self.output.print(self.allocator, "*{d}\r\n", .{fields.len});
+        try self.output.writer().print("*{d}\r\n", .{fields.len});
 
         inline for (fields) |field| {
             const value = @field(items, field.name);
             switch (@TypeOf(value)) {
                 []const u8 => try self.writeBulkString(value),
-                i64, u64, u32, i32 => try self.output.print(self.allocator, ":{d}\r\n", .{value}),
+                i64, u64, u32, i32 => try self.output.writer().print(":{d}\r\n", .{value}),
                 else => {
                     // Handle string literals like *const [N:0]u8
                     const TypeInfo = @typeInfo(@TypeOf(value));
@@ -217,7 +226,7 @@ pub const MockServer = struct {
     channels: [8]?[]const u8, // Channel names (reduced for tests)
     subscribers: [8][16]u64, // Subscriber lists per channel (reduced for tests)
     subscriber_counts: [8]u32, // Number of subscribers per channel
-    clients: std.ArrayList(*MockClient), // List of connected clients
+    clients: std.array_list.Managed(*MockClient), // List of connected clients
     channel_count: u32,
 
     pub fn init(allocator: std.mem.Allocator) MockServer {
@@ -226,7 +235,7 @@ pub const MockServer = struct {
             .channels = [_]?[]const u8{null} ** 8,
             .subscribers = [_][16]u64{[_]u64{0} ** 16} ** 8,
             .subscriber_counts = [_]u32{0} ** 8,
-            .clients = std.ArrayList(*MockClient){},
+            .clients = std.array_list.Managed(*MockClient).init(allocator),
             .channel_count = 0,
         };
     }
@@ -238,11 +247,11 @@ pub const MockServer = struct {
                 self.allocator.free(name);
             }
         }
-        self.clients.deinit(self.allocator);
+        self.clients.deinit();
     }
 
     pub fn addClient(self: *MockServer, client: *MockClient) !void {
-        try self.clients.append(self.allocator, client);
+        try self.clients.append(client);
     }
 
     pub fn findOrCreateChannel(self: *MockServer, channel_name: []const u8) ?u32 {

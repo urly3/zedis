@@ -7,6 +7,8 @@ const store_mod = @import("store.zig");
 const Store = store_mod.Store;
 const ZedisObject = store_mod.ZedisObject;
 const ZedisValue = store_mod.ZedisValue;
+const ZedisList = store_mod.ZedisList;
+const PrimitiveValue = store_mod.PrimitiveValue;
 const Command = @import("parser.zig").Command;
 const CommandRegistry = @import("./commands/registry.zig").CommandRegistry;
 const Server = @import("./server.zig").Server;
@@ -117,23 +119,22 @@ pub const Client = struct {
         _ = try self.writer.interface.write(formatted);
     }
 
+    pub fn writeIntAsString(self: *Client, i: i64) !void {
+        var buf: [8]u8 = undefined;
+        const int_str = try std.fmt.bufPrint(&buf, "{}", .{i});
+        try self.writeBulkString(int_str);
+    }
+
     pub fn writeInt(self: *Client, value: i64) !void {
         const formatted = try std.fmt.allocPrint(self.allocator, ":{d}\r\n", .{value});
         defer self.allocator.free(formatted);
         _ = try self.writer.interface.write(formatted);
     }
 
-    pub fn writeArray(self: *Client, values: []const ZedisValue) !void {
-        try self.writer.interface.print("*{d}\r\n", .{values.len});
-
-        // 2. Iterate over each element and write it to the stream.
-        for (values) |value| {
-            switch (value) {
-                .string => |s| try self.writeBulkString(s),
-                .int => |i| try self.writeInt(i),
-            }
-        }
+    pub fn writeListLen(self: *Client, count: usize) !void {
+        try self.writer.interface.print("*{d}\r\n", .{count});
     }
+
     pub fn writeTupleAsArray(self: *Client, items: anytype) !void {
         const T = @TypeOf(items);
         const info = @typeInfo(T);

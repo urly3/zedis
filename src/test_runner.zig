@@ -37,7 +37,7 @@ pub const TestConfig = struct {
 pub const TestRunner = struct {
     allocator: std.mem.Allocator,
     config: TestConfig,
-    results: std.ArrayList(TestResult),
+    results: std.array_list.Managed(TestResult),
     stats: TestStats,
     start_time: i128,
 
@@ -47,7 +47,7 @@ pub const TestRunner = struct {
         return Self{
             .allocator = allocator,
             .config = config,
-            .results = std.ArrayList(TestResult){},
+            .results = std.array_list.Managed(TestResult).init(allocator),
             .stats = TestStats{},
             .start_time = std.time.nanoTimestamp(),
         };
@@ -59,7 +59,7 @@ pub const TestRunner = struct {
                 self.allocator.free(msg);
             }
         }
-        self.results.deinit(self.allocator);
+        self.results.deinit();
     }
 
     /// Check if a test name matches the filter
