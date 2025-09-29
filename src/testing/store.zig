@@ -425,19 +425,19 @@ test "Store list append and insert operations" {
 
     try testing.expectEqual(@as(usize, 0), list.len());
 
-    try list.append( .{ .string = "first" });
+    try list.append(.{ .string = "first" });
     try testing.expectEqual(@as(usize, 1), list.len());
-    try testing.expectEqualStrings("first", list.getByIndex( 0).?.string);
+    try testing.expectEqualStrings("first", list.getByIndex(0).?.string);
 
-    try list.append( .{ .string = "second" });
+    try list.append(.{ .string = "second" });
     try testing.expectEqual(@as(usize, 2), list.len());
-    try testing.expectEqualStrings("second", list.getByIndex( 1).?.string);
+    try testing.expectEqualStrings("second", list.getByIndex(1).?.string);
 
     try list.prepend(.{ .string = "zero" });
     try testing.expectEqual(@as(usize, 3), list.len());
-    try testing.expectEqualStrings("zero", list.getByIndex( 0).?.string);
-    try testing.expectEqualStrings("first", list.getByIndex( 1).?.string);
-    try testing.expectEqualStrings("second", list.getByIndex( 2).?.string);
+    try testing.expectEqualStrings("zero", list.getByIndex(0).?.string);
+    try testing.expectEqualStrings("first", list.getByIndex(1).?.string);
+    try testing.expectEqualStrings("second", list.getByIndex(2).?.string);
 }
 
 test "Store list with mixed value types" {
@@ -455,9 +455,9 @@ test "Store list with mixed value types" {
     try list.append(.{ .string = "world" });
 
     try testing.expectEqual(@as(usize, 3), list.len());
-    try testing.expectEqualStrings("hello", list.getByIndex( 0).?.string);
-    try testing.expectEqual(@as(i64, 42), list.getByIndex( 1).?.int);
-    try testing.expectEqualStrings("world", list.getByIndex( 2).?.string);
+    try testing.expectEqualStrings("hello", list.getByIndex(0).?.string);
+    try testing.expectEqual(@as(i64, 42), list.getByIndex(1).?.int);
+    try testing.expectEqualStrings("world", list.getByIndex(2).?.string);
 }
 
 test "Store getList with wrong type" {
@@ -514,7 +514,7 @@ test "Store overwrite list with string" {
     defer store.deinit();
 
     const list = try store.createList("key1");
-    try list.append( .{ .string = "item" });
+    try list.append(.{ .string = "item" });
     try testing.expectEqual(ValueType.list, store.getType("key1").?);
 
     try store.setString("key1", "hello");
@@ -534,8 +534,8 @@ test "Store delete list key" {
     defer store.deinit();
 
     const list = try store.createList("mylist");
-    try list.append( .{ .string = "item1" });
-    try list.append( .{ .string = "item2" });
+    try list.append(.{ .string = "item1" });
+    try list.append(.{ .string = "item2" });
 
     try testing.expect(store.exists("mylist"));
     try testing.expectEqual(@as(u32, 1), store.size());
@@ -558,11 +558,11 @@ test "Store empty list operations" {
     const list = try store.createList("test_empty_ops");
     try testing.expectEqual(@as(usize, 0), list.len());
 
-    try list.append( .{ .string = "" });
+    try list.append(.{ .string = "" });
     try testing.expectEqual(@as(usize, 1), list.len());
-    try testing.expectEqualStrings("", list.getByIndex( 0).?.string);
+    try testing.expectEqualStrings("", list.getByIndex(0).?.string);
 
-    try list.append( .{ .int = 0 });
+    try list.append(.{ .int = 0 });
     try testing.expectEqual(@as(usize, 2), list.len());
-    try testing.expectEqual(@as(i64, 0), list.getByIndex( 1).?.int);
+    try testing.expectEqual(@as(i64, 0), list.getByIndex(1).?.int);
 }

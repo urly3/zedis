@@ -190,6 +190,134 @@ pub const MockClient = struct {
         try self.writeInt(deleted);
     }
 
+    // List command test methods
+    pub fn writeListLen(self: *MockClient, count: usize) !void {
+        try self.output.writer().print("*{d}\r\n", .{count});
+    }
+
+    pub fn writeIntAsString(self: *MockClient, i: i64) !void {
+        var buf: [21]u8 = undefined; // Enough for i64
+        const int_str = try std.fmt.bufPrint(&buf, "{}", .{i});
+        try self.writeBulkString(int_str);
+    }
+
+    pub fn testLpush(self: *MockClient, args: []const Value) !void {
+        const key = args[1].asSlice();
+        const list = try self.store.getSetList(key);
+
+        for (args[2..]) |arg| {
+            try list.prepend(.{ .string = arg.asSlice() });
+        }
+
+        try self.writeInt(list.len());
+    }
+
+    pub fn testRpush(self: *MockClient, args: []const Value) !void {
+        const key = args[1].asSlice();
+        const list = try self.store.getSetList(key);
+
+        for (args[2..]) |arg| {
+            try list.append(.{ .string = arg.asSlice() });
+        }
+
+        try self.writeInt(list.len());
+    }
+
+    pub fn testLpop(self: *MockClient, args: []const Value) !void {
+        const key = args[1].asSlice();
+        const list = try self.store.getList(key) orelse {
+            try self.writeNull();
+            return;
+        };
+
+        var count: usize = 1;
+        if (args.len == 3) {
+            count = try args[2].asUsize();
+        }
+
+        const list_len = list.len();
+        const actual_count = @min(count, list_len);
+
+        if (actual_count == 0) {
+            try self.writeNull();
+            return;
+        }
+
+        if (actual_count == 1) {
+            const item = list.popFirst().?;
+            switch (item) {
+                .string => |str| try self.writeBulkString(str),
+                .int => |i| try self.writeIntAsString(i),
+            }
+            return;
+        }
+
+        if (actual_count > 1) {
+            try self.writeListLen(actual_count);
+            for (0..actual_count) |_| {
+                const item = list.popFirst().?;
+                switch (item) {
+                    .string => |str| try self.writeBulkString(str),
+                    .int => |i| try self.writeIntAsString(i),
+                }
+            }
+            return;
+        }
+    }
+
+    pub fn testRpop(self: *MockClient, args: []const Value) !void {
+        const key = args[1].asSlice();
+        const list = try self.store.getList(key) orelse {
+            try self.writeNull();
+            return;
+        };
+
+        var count: usize = 1;
+        if (args.len == 3) {
+            count = try args[2].asUsize();
+        }
+
+        const list_len = list.len();
+        const actual_count = @min(count, list_len);
+
+        if (actual_count == 0) {
+            try self.writeNull();
+            return;
+        }
+
+        if (actual_count == 1) {
+            const item = list.pop().?;
+            switch (item) {
+                .string => |str| try self.writeBulkString(str),
+                .int => |i| try self.writeIntAsString(i),
+            }
+            return;
+        }
+
+        if (actual_count > 1) {
+            try self.writeListLen(actual_count);
+            for (0..actual_count) |_| {
+                const item = list.pop().?;
+                switch (item) {
+                    .string => |str| try self.writeBulkString(str),
+                    .int => |i| try self.writeIntAsString(i),
+                }
+            }
+            return;
+        }
+    }
+
+    pub fn testLlen(self: *MockClient, args: []const Value) !void {
+        const key = args[1].asSlice();
+        const list = try self.store.getList(key);
+
+        if (list) |l| {
+            try self.writeInt(l.len());
+        } else {
+            try self.writeInt(0);
+        }
+    }
+
     pub fn writeTupleAsArray(self: *MockClient, items: anytype) !void {
         const fields = std.meta.fields(@TypeOf(items));
         try self.output.writer().print("*{d}\r\n", .{fields.len});

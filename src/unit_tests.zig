@@ -9,6 +9,7 @@ comptime {
     _ = @import("server.zig");
     _ = @import("testing/store.zig");
     _ = @import("testing/string.zig");
+    _ = @import("testing/list.zig");
 
     // Pub/Sub tests
     _ = @import("pubsub/pubsub.zig");

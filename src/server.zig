@@ -298,6 +298,14 @@ pub const Server = struct {
         });
 
         try registry.register(.{
+            .name = "RPOP",
+            .handler = list.rpop,
+            .min_args = 2,
+            .max_args = 3,
+            .description = "Remove and return the last element of a list",
+        });
+
+        try registry.register(.{
             .name = "LLEN",
             .handler = list.llen,
             .min_args = 2,

@@ -16,9 +16,9 @@ test "SET command with string value" {
     defer client.deinit();
 
     const args = [_]Value{
-        Value{ .data = "SET" },
-        Value{ .data = "key1" },
-        Value{ .data = "hello" },
+        .{ .data = "SET" },
+        .{ .data = "key1" },
+        .{ .data = "hello" },
     };
 
     try client.testSet(&args);
@@ -42,9 +42,9 @@ test "SET command with integer value" {
     defer client.deinit();
 
     const args = [_]Value{
-        Value{ .data = "SET" },
-        Value{ .data = "key1" },
-        Value{ .data = "42" },
+        .{ .data = "SET" },
+        .{ .data = "key1" },
+        .{ .data = "42" },
     };
 
     try client.testSet(&args);
@@ -70,8 +70,8 @@ test "GET command with existing string value" {
     try store.setString("key1", "hello");
 
     const args = [_]Value{
-        Value{ .data = "GET" },
-        Value{ .data = "key1" },
+        .{ .data = "GET" },
+        .{ .data = "key1" },
     };
 
     try client.testGet(&args);
@@ -93,8 +93,8 @@ test "GET command with existing integer value" {
     try store.setInt("key1", 42);
 
     const args = [_]Value{
-        Value{ .data = "GET" },
-        Value{ .data = "key1" },
+        .{ .data = "GET" },
+        .{ .data = "key1" },
     };
 
     try client.testGet(&args);
@@ -114,8 +114,8 @@ test "GET command with non-existing key" {
     defer client.deinit();
 
     const args = [_]Value{
-        Value{ .data = "GET" },
-        Value{ .data = "nonexistent" },
+        .{ .data = "GET" },
+        .{ .data = "nonexistent" },
     };
 
     try client.testGet(&args);
@@ -135,8 +135,8 @@ test "INCR command on non-existing key" {
     defer client.deinit();
 
     const args = [_]Value{
-        Value{ .data = "INCR" },
-        Value{ .data = "counter" },
+        .{ .data = "INCR" },
+        .{ .data = "counter" },
     };
 
     try client.testIncr(&args);
@@ -162,8 +162,8 @@ test "INCR command on existing integer" {
     try store.setInt("counter", 5);
 
     const args = [_]Value{
-        Value{ .data = "INCR" },
-        Value{ .data = "counter" },
+        .{ .data = "INCR" },
+        .{ .data = "counter" },
     };
 
     try client.testIncr(&args);
@@ -189,8 +189,8 @@ test "INCR command on string that represents integer" {
     try store.setString("counter", "10");
 
     const args = [_]Value{
-        Value{ .data = "INCR" },
-        Value{ .data = "counter" },
+        .{ .data = "INCR" },
+        .{ .data = "counter" },
     };
 
     try client.testIncr(&args);
@@ -216,8 +216,8 @@ test "INCR command on non-integer string" {
     try store.setString("key1", "hello");
 
     const args = [_]Value{
-        Value{ .data = "INCR" },
-        Value{ .data = "key1" },
+        .{ .data = "INCR" },
+        .{ .data = "key1" },
     };
 
     try client.testIncr(&args);
@@ -237,8 +237,8 @@ test "DECR command on non-existing key" {
     defer client.deinit();
 
     const args = [_]Value{
-        Value{ .data = "DECR" },
-        Value{ .data = "counter" },
+        .{ .data = "DECR" },
+        .{ .data = "counter" },
     };
 
     try client.testDecr(&args);
@@ -264,8 +264,8 @@ test "DECR command on existing integer" {
     try store.setInt("counter", 10);
 
     const args = [_]Value{
-        Value{ .data = "DECR" },
-        Value{ .data = "counter" },
+        .{ .data = "DECR" },
+        .{ .data = "counter" },
     };
 
     try client.testDecr(&args);
@@ -291,8 +291,8 @@ test "DEL command with single existing key" {
     try store.setString("key1", "value1");
 
     const args = [_]Value{
-        Value{ .data = "DEL" },
-        Value{ .data = "key1" },
+        .{ .data = "DEL" },
+        .{ .data = "key1" },
     };
 
     try client.testDel(&args);
@@ -319,11 +319,11 @@ test "DEL command with multiple keys" {
     try store.setInt("key3", 42);
 
     const args = [_]Value{
-        Value{ .data = "DEL" },
-        Value{ .data = "key1" },
-        Value{ .data = "key2" },
-        Value{ .data = "key3" },
-        Value{ .data = "nonexistent" },
+        .{ .data = "DEL" },
+        .{ .data = "key1" },
+        .{ .data = "key2" },
+        .{ .data = "key3" },
+        .{ .data = "nonexistent" },
     };
 
     try client.testDel(&args);
@@ -347,8 +347,8 @@ test "DEL command with non-existing key" {
     defer client.deinit();
 
     const args = [_]Value{
-        Value{ .data = "DEL" },
-        Value{ .data = "nonexistent" },
+        .{ .data = "DEL" },
+        .{ .data = "nonexistent" },
     };
 
     try client.testDel(&args);

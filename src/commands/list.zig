@@ -69,6 +69,48 @@ pub fn lpop(client: *Client, args: []const Value) !void {
     }
 }
 
+pub fn rpop(client: *Client, args: []const Value) !void {
+    const key = args[1].asSlice();
+    const list = try client.store.getList(key) orelse {
+        try client.writeNull();
+        return;
+    };
+
+    var count: usize = 1;
+
+    if (args.len == 3) {
+        count = try args[2].asUsize();
+    }
+
+    const list_len = list.len();
+    const actual_count = @min(count, list_len);
+
+    if (actual_count == 0) {
+        try client.writeNull();
+        return;
+    }
+
+    if (actual_count == 1) {
+        const item = list.pop().?;
+        switch (item) {
+            .string => |str| try client.writeBulkString(str),
+            .int => |i| try client.writeIntAsString(i),
+        }
+        return;
+    }
+    if (actual_count > 1) {
+        try client.writeListLen(actual_count);
+        for (0..actual_count) |_| {
+            const item = list.pop().?;
+            switch (item) {
+                .string => |str| try client.writeBulkString(str),
+                .int => |i| try client.writeIntAsString(i),
+            }
+        }
+        return;
+    }
+}
+
 pub fn llen(client: *Client, args: []const Value) !void {
     const key = args[1].asSlice();
     const list = try client.store.getList(key);

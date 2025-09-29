@@ -305,5 +305,4 @@ pub const Store = struct {
         }
         return false;
     }
-
 };
