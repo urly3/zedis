@@ -161,7 +161,7 @@ pub const Server = struct {
 
         try registry.register(.{
             .name = "PING",
-            .handler = connection_commands.ping,
+            .handler = .{ .default = connection_commands.ping },
             .min_args = 1,
             .max_args = 2,
             .description = "Ping the server",
@@ -169,7 +169,7 @@ pub const Server = struct {
 
         try registry.register(.{
             .name = "ECHO",
-            .handler = connection_commands.echo,
+            .handler = .{ .default = connection_commands.echo },
             .min_args = 2,
             .max_args = 2,
             .description = "Echo the given string",
@@ -177,7 +177,7 @@ pub const Server = struct {
 
         try registry.register(.{
             .name = "QUIT",
-            .handler = connection_commands.quit,
+            .handler = .{ .default = connection_commands.quit },
             .min_args = 1,
             .max_args = 1,
             .description = "Close the connection",
@@ -185,7 +185,7 @@ pub const Server = struct {
 
         try registry.register(.{
             .name = "SET",
-            .handler = string.set,
+            .handler = .{ .store_handler = string.set },
             .min_args = 3,
             .max_args = 3,
             .description = "Set string value of a key",
@@ -193,7 +193,7 @@ pub const Server = struct {
 
         try registry.register(.{
             .name = "GET",
-            .handler = string.get,
+            .handler = .{ .store_handler = string.get },
             .min_args = 2,
             .max_args = 2,
             .description = "Get string value of a key",
@@ -201,7 +201,7 @@ pub const Server = struct {
 
         try registry.register(.{
             .name = "INCR",
-            .handler = string.incr,
+            .handler = .{ .store_handler = string.incr },
             .min_args = 2,
             .max_args = 2,
             .description = "Increment the value of a key",
@@ -209,7 +209,7 @@ pub const Server = struct {
 
         try registry.register(.{
             .name = "DECR",
-            .handler = string.decr,
+            .handler = .{ .store_handler = string.decr },
             .min_args = 2,
             .max_args = 2,
             .description = "Decrement the value of a key",
@@ -217,7 +217,7 @@ pub const Server = struct {
 
         try registry.register(.{
             .name = "HELP",
-            .handler = connection_commands.help,
+            .handler = .{ .default = connection_commands.help },
             .min_args = 1,
             .max_args = 1,
             .description = "Show help message",
@@ -225,7 +225,7 @@ pub const Server = struct {
 
         try registry.register(.{
             .name = "DEL",
-            .handler = string.del,
+            .handler = .{ .store_handler = string.del },
             .min_args = 2,
             .max_args = null,
             .description = "Delete key",
@@ -233,7 +233,7 @@ pub const Server = struct {
 
         try registry.register(.{
             .name = "SAVE",
-            .handler = rdb.save,
+            .handler = .{ .client_handler = rdb.save },
             .min_args = 1,
             .max_args = 1,
             .description = "The SAVE commands performs a synchronous save of the dataset producing a point in time snapshot of all the data inside the Redis instance, in the form of an RDB file.",
@@ -241,7 +241,7 @@ pub const Server = struct {
 
         try registry.register(.{
             .name = "PUBLISH",
-            .handler = pubsub.publish,
+            .handler = .{ .client_handler = pubsub.publish },
             .min_args = 3,
             .max_args = 3,
             .description = "Publish message",
@@ -249,7 +249,7 @@ pub const Server = struct {
 
         try registry.register(.{
             .name = "SUBSCRIBE",
-            .handler = pubsub.subscribe,
+            .handler = .{ .client_handler = pubsub.subscribe },
             .min_args = 2,
             .max_args = null,
             .description = "Subscribe to channels",
@@ -257,14 +257,14 @@ pub const Server = struct {
 
         try registry.register(.{
             .name = "EXPIRE",
-            .handler = string.expire,
+            .handler = .{ .store_handler = string.expire },
             .min_args = 3,
             .max_args = null,
             .description = "Expire key",
         });
         try registry.register(.{
             .name = "AUTH",
-            .handler = connection_commands.auth,
+            .handler = .{ .client_handler = connection_commands.auth },
             .min_args = 2,
             .max_args = 2,
             .description = "Authenticate to the server",
