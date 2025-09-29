@@ -15,6 +15,7 @@ const pubsub = @import("./pubsub/pubsub.zig");
 const PubSubContext = pubsub.PubSubContext;
 const server_config = @import("server_config.zig");
 const KeyValueAllocator = @import("kv_allocator.zig").KeyValueAllocator;
+const aof = @import("./aof/aof.zig");
 
 pub const Server = struct {
     // Configuration
@@ -62,7 +63,9 @@ pub const Server = struct {
         var kv_allocator = try KeyValueAllocator.init(base_allocator, config.kv_memory_budget, config.eviction_policy);
 
         // Initialize store with the KV allocator
-        const store = Store.init(kv_allocator.allocator());
+        // 'true' -> if aof enabled.. and with the file name..
+        const aof_writer = try aof.Writer.init(true);
+        const store = Store.init(kv_allocator.allocator(), aof_writer);
 
         // Initialize command registry with temp arena (will be allocated)
         var temp_arena = std.heap.ArenaAllocator.init(base_allocator);
@@ -105,17 +108,26 @@ pub const Server = struct {
 
         server.pubsub_context = PubSubContext.init(&server);
 
-        // Load RDB file if it exists
-        const file_exists = Reader.rdbFileExists();
-        if (file_exists) {
-            var reader = try Reader.init(server.temp_arena.allocator(), &server.store);
-            defer reader.deinit();
+        if (aof_writer.enabled) {
+            // Load AOF file if it exists
+            server.store.aof_writer.enabled = false;
+            std.log.debug("Loading AOF", .{});
+            var aof_reader = try aof.Reader.init(server.temp_arena.allocator());
+            try aof_reader.read(&server);
+            server.store.aof_writer.enabled = true;
+        } else {
+            // Load RDB file if it exists
+            const file_exists = Reader.rdbFileExists();
+            if (file_exists) {
+                var reader = try Reader.init(server.temp_arena.allocator(), &server.store);
+                defer reader.deinit();
 
-            if (reader.readFile()) |data| {
-                std.log.debug("Loading RDB", .{});
-                server.createdTime = data.ctime;
-            } else |err| {
-                std.log.err("Failed to load rdb: {s}", .{@errorName(err)});
+                if (reader.readFile()) |data| {
+                    std.log.debug("Loading RDB", .{});
+                    server.createdTime = data.ctime;
+                } else |err| {
+                    std.log.err("Failed to load rdb: {s}", .{@errorName(err)});
+                }
             }
         }
 

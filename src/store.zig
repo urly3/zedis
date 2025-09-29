@@ -1,4 +1,5 @@
 const std = @import("std");
+const aof = @import("aof/aof.zig");
 
 pub const ValueType = enum(u8) {
     string = 0,
@@ -26,12 +27,14 @@ pub const Store = struct {
     allocator: std.mem.Allocator,
     // The HashMap stores string keys and string values.
     map: std.StringHashMap(ZedisObject),
+    aof_writer: aof.Writer,
 
     // Initializes the store.
-    pub fn init(allocator: std.mem.Allocator) Store {
+    pub fn init(allocator: std.mem.Allocator, aof_writer: aof.Writer) Store {
         return .{
             .allocator = allocator,
             .map = std.StringHashMap(ZedisObject).init(allocator),
+            .aof_writer = aof_writer,
         };
     }
 
@@ -47,6 +50,7 @@ pub const Store = struct {
             }
         }
         self.map.deinit();
+        self.aof_writer.deinit();
     }
 
     pub fn size(self: Store) u32 {

@@ -9,7 +9,7 @@ test "SET command with string value" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var store = Store.init(allocator);
+    var store = Store.init(allocator, try .init(false));
     defer store.deinit();
 
     var client = MockClient.initLegacy(allocator, &store);
@@ -35,7 +35,7 @@ test "SET command with integer value" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var store = Store.init(allocator);
+    var store = Store.init(allocator, try .init(false));
     defer store.deinit();
 
     var client = MockClient.initLegacy(allocator, &store);
@@ -61,7 +61,7 @@ test "GET command with existing string value" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var store = Store.init(allocator);
+    var store = Store.init(allocator, try .init(false));
     defer store.deinit();
 
     var client = MockClient.initLegacy(allocator, &store);
@@ -84,7 +84,7 @@ test "GET command with existing integer value" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var store = Store.init(allocator);
+    var store = Store.init(allocator, try .init(false));
     defer store.deinit();
 
     var client = MockClient.initLegacy(allocator, &store);
@@ -107,7 +107,7 @@ test "GET command with non-existing key" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var store = Store.init(allocator);
+    var store = Store.init(allocator, try .init(false));
     defer store.deinit();
 
     var client = MockClient.initLegacy(allocator, &store);
@@ -128,7 +128,7 @@ test "INCR command on non-existing key" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var store = Store.init(allocator);
+    var store = Store.init(allocator, try .init(false));
     defer store.deinit();
 
     var client = MockClient.initLegacy(allocator, &store);
@@ -153,7 +153,7 @@ test "INCR command on existing integer" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var store = Store.init(allocator);
+    var store = Store.init(allocator, try .init(false));
     defer store.deinit();
 
     var client = MockClient.initLegacy(allocator, &store);
@@ -180,7 +180,7 @@ test "INCR command on string that represents integer" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var store = Store.init(allocator);
+    var store = Store.init(allocator, try .init(false));
     defer store.deinit();
 
     var client = MockClient.initLegacy(allocator, &store);
@@ -207,7 +207,7 @@ test "INCR command on non-integer string" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var store = Store.init(allocator);
+    var store = Store.init(allocator, try .init(false));
     defer store.deinit();
 
     var client = MockClient.initLegacy(allocator, &store);
@@ -230,7 +230,7 @@ test "DECR command on non-existing key" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var store = Store.init(allocator);
+    var store = Store.init(allocator, try .init(false));
     defer store.deinit();
 
     var client = MockClient.initLegacy(allocator, &store);
@@ -255,7 +255,7 @@ test "DECR command on existing integer" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var store = Store.init(allocator);
+    var store = Store.init(allocator, try .init(false));
     defer store.deinit();
 
     var client = MockClient.initLegacy(allocator, &store);
@@ -282,7 +282,7 @@ test "DEL command with single existing key" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var store = Store.init(allocator);
+    var store = Store.init(allocator, try .init(false));
     defer store.deinit();
 
     var client = MockClient.initLegacy(allocator, &store);
@@ -308,7 +308,7 @@ test "DEL command with multiple keys" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var store = Store.init(allocator);
+    var store = Store.init(allocator, try .init(false));
     defer store.deinit();
 
     var client = MockClient.initLegacy(allocator, &store);
@@ -340,7 +340,7 @@ test "DEL command with non-existing key" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var store = Store.init(allocator);
+    var store = Store.init(allocator, try .init(false));
     defer store.deinit();
 
     var client = MockClient.initLegacy(allocator, &store);

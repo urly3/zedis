@@ -150,7 +150,7 @@ test "incrDecr helper function with string integer" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var store = Store.init(allocator);
+    var store = Store.init(allocator, try .init(false));
     defer store.deinit();
 
     try store.setString("key1", "100");
@@ -168,7 +168,7 @@ test "incrDecr helper function with integer overflow" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var store = Store.init(allocator);
+    var store = Store.init(allocator, try .init(false));
     defer store.deinit();
 
     try store.setInt("key1", std.math.maxInt(i64));
@@ -182,7 +182,7 @@ test "incrDecr helper function with non-existent key" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var store = Store.init(allocator);
+    var store = Store.init(allocator, try .init(false));
     defer store.deinit();
 
     const result = incrDecr(&store, "nonexistent", 1);

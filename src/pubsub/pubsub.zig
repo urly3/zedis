@@ -313,7 +313,7 @@ test "PubSubContext - find client by ID" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var data_store = Store.init(allocator);
+    var data_store = Store.init(allocator, try .init(false));
     defer data_store.deinit();
 
     var server = MockServer.init(allocator);
@@ -350,7 +350,7 @@ test "subscribe command - single channel subscription" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var data_store = Store.init(allocator);
+    var data_store = Store.init(allocator, try .init(false));
     defer data_store.deinit();
 
     var server = MockServer.init(allocator);
@@ -389,7 +389,7 @@ test "subscribe command - multiple channel subscriptions" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var data_store = Store.init(allocator);
+    var data_store = Store.init(allocator, try .init(false));
     defer data_store.deinit();
 
     var server = MockServer.init(allocator);
@@ -434,7 +434,7 @@ test "subscribe command - channel limit reached" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var data_store = Store.init(allocator);
+    var data_store = Store.init(allocator, try .init(false));
     defer data_store.deinit();
 
     var server = MockServer.init(allocator);
@@ -472,7 +472,7 @@ test "publish command - single subscriber" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var data_store = Store.init(allocator);
+    var data_store = Store.init(allocator, try .init(false));
     defer data_store.deinit();
 
     var server = MockServer.init(allocator);
@@ -519,7 +519,7 @@ test "publish command - multiple subscribers" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var data_store = Store.init(allocator);
+    var data_store = Store.init(allocator, try .init(false));
     defer data_store.deinit();
 
     var server = MockServer.init(allocator);
@@ -579,7 +579,7 @@ test "publish command - non-existent channel" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var data_store = Store.init(allocator);
+    var data_store = Store.init(allocator, try .init(false));
     defer data_store.deinit();
 
     var server = MockServer.init(allocator);
@@ -611,7 +611,7 @@ test "publish command - empty channel" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var data_store = Store.init(allocator);
+    var data_store = Store.init(allocator, try .init(false));
     defer data_store.deinit();
 
     var server = MockServer.init(allocator);
@@ -646,7 +646,7 @@ test "subscriber limit per channel error" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var data_store = Store.init(allocator);
+    var data_store = Store.init(allocator, try .init(false));
     defer data_store.deinit();
 
     var server = MockServer.init(allocator);

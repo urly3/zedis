@@ -23,8 +23,8 @@ pub fn writeBulkSingleIntString(writer: *std.Io.Writer, int: comptime_int) !void
 
 pub fn writeBulkIntString(writer: *std.Io.Writer, int: i64) !void {
     var buf: [19]u8 = undefined;
-    const len = std.fmt.printInt(&buf, int, 10, .upper, .{}) + 1;
-    try writer.print("${d}\r\n{s}\r\n", .{ 1, buf[0..len] });
+    const len = std.fmt.printInt(&buf, int, 10, .upper, .{});
+    try writer.print("${d}\r\n{s}\r\n", .{ len, buf[0..len] });
 }
 
 pub fn writeInt(writer: *std.Io.Writer, value: i64) !void {
@@ -42,6 +42,16 @@ pub fn writeArray(writer: *std.Io.Writer, values: []const ZedisValue) !void {
         }
     }
 }
+
+pub fn writeArrayString(writer: *std.Io.Writer, values: []const Value) !void {
+    try writer.print("*{d}\r\n", .{values.len});
+
+    // 2. Iterate over each element and write it to the stream.
+    for (values) |value| {
+        try writeBulkString(writer, value.asSlice());
+    }
+}
+
 pub fn writeTupleAsArray(writer: *std.Io.Writer, items: anytype) !void {
     const T = @TypeOf(items);
     const info = @typeInfo(T);

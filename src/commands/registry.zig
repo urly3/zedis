@@ -21,7 +21,7 @@ pub const Handler = union(enum) {
 pub const DefaultHandler = *const fn (writer: *std.Io.Writer, args: []const Value) anyerror!void;
 // Requires client
 pub const ClientHander = *const fn (client: *Client, args: []const Value) anyerror!void;
-// Updates store
+// Requires store
 pub const StoreHandler = *const fn (writer: *std.Io.Writer, store: *Store, args: []const Value) anyerror!void;
 
 pub const CommandInfo = struct {
@@ -56,7 +56,13 @@ pub const CommandRegistry = struct {
         return self.commands.get(name);
     }
 
-    pub fn executeCommand(self: *CommandRegistry, writer: *std.Io.Writer, client: ?*Client, store: ?*Store, args: []const Value) !void {
+    pub fn executeCommand(
+        self: *CommandRegistry,
+        writer: *std.Io.Writer,
+        client: ?*Client,
+        store: ?*Store,
+        args: []const Value,
+    ) !void {
         if (args.len == 0) {
             return resp.writeError(writer, "ERR empty command");
         }
@@ -83,26 +89,31 @@ pub const CommandRegistry = struct {
             }
 
             switch (cmd_info.handler) {
-                .client_handler => |ch| {
+                .client_handler => |handler| {
                     // If we haven't provided a client, this is an invariant failure
-                    ch(client.?, args) catch |err| {
+                    handler(client.?, args) catch |err| {
                         std.log.err("Handler for command '{s}' failed with error: {s}", .{
                             cmd_info.name,
                             @errorName(err),
                         });
                     };
                 },
-                .store_handler => |ph| {
-                    // If we haven't provided a client, this is an invariant failure
-                    ph(writer, store.?, args) catch |err| {
+                .store_handler => |handler| {
+                    // If we haven't provided a store, this is an invariant failure
+                    handler(writer, store.?, args) catch |err| {
                         std.log.err("Handler for command '{s}' failed with error: {s}", .{
                             cmd_info.name,
                             @errorName(err),
                         });
                     };
+
+                    // TODO: expire/expireat
+                    if (store.?.aof_writer.enabled and !std.mem.eql(u8, cmd_info.name, "GET")) {
+                        try resp.writeArrayString(store.?.aof_writer.writer(), args);
+                    }
                 },
-                .default => |oh| {
-                    oh(writer, args) catch |err| {
+                .default => |handler| {
+                    handler(writer, args) catch |err| {
                         std.log.err("Handler for command '{s}' failed with error: {s}", .{
                             cmd_info.name,
                             @errorName(err),
