@@ -31,7 +31,7 @@ pub fn set(client: *Client, args: []const Value) !void {
         try client.store.setString(key, value);
     }
 
-    _ = try client.writer.interface.write("+OK\r\n");
+    try client.writeBulkString("OK");
 }
 
 pub fn get(client: *Client, args: []const Value) !void {

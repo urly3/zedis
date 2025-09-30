@@ -19,22 +19,22 @@ pub const Value = struct {
 
 // Represents a parsed command, which is an array of values.
 pub const Command = struct {
-    args: std.array_list.Managed(Value),
+    args: std.ArrayList(Value),
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) Command {
         return Command{
-            .args = std.array_list.Managed(Value).init(allocator),
+            .args = std.ArrayList(Value){},
             .allocator = allocator,
         };
     }
 
     pub fn deinit(self: *Command) void {
-        self.args.deinit();
+        self.args.deinit(self.allocator);
     }
 
     pub fn addArg(self: *Command, value: Value) !void {
-        try self.args.append(value);
+        try self.args.append(self.allocator, value);
     }
 };
 

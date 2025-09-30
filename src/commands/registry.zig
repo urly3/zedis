@@ -81,10 +81,10 @@ pub const CommandRegistry = struct {
                     cmd_info.name,
                     @errorName(err),
                 });
-                return client.writeError("ERR {s} while processing command '{s}'", .{ @errorName(err), cmd_info.name });
+                client.writeError("ERR {s} while processing command '{s}'", .{ @errorName(err), cmd_info.name }) catch {};
             };
         } else {
-            return client.writeError("ERR unknown command", .{});
+            client.writeError("ERR unknown command", .{}) catch {};
         }
     }
 };

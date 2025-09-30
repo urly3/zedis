@@ -223,50 +223,33 @@ pub const Store = struct {
     }
 
     pub fn setObject(self: *Store, key: []const u8, object: ZedisObject) !void {
-        // Check if key already exists and free old memory
-        var key_exists = false;
-        if (self.map.getPtr(key)) |existing_entry| {
-            key_exists = true;
-            // Free the old value based on its type
-            switch (existing_entry.value) {
+        const gop = try self.map.getOrPut(key);
+
+        // Free old value if key existed
+        if (gop.found_existing) {
+            switch (gop.value_ptr.value) {
                 .string => |str| self.allocator.free(str),
                 .int => {},
                 .list => |*list| @constCast(list).deinit(),
             }
+        } else {
+            // New key - allocate copy
+            gop.key_ptr.* = try self.allocator.dupe(u8, key);
         }
 
-        // If key doesn't exist, we need to allocate memory for the key
-        if (!key_exists) {
-            const key_copy = try self.allocator.dupe(u8, key);
-            errdefer self.allocator.free(key_copy);
-
-            // Pre-allocate the entry in the map
-            try self.map.put(key_copy, undefined);
-        }
-
-        // Now we know the key exists in the map, get a pointer to modify it
-        const entry_ptr = self.map.getPtr(key).?;
-
-        // Set up the new object
+        // Build the new object with allocated values
         var new_object = object;
         switch (object.value) {
-            .string => {
-                const value_copy = try self.allocator.dupe(u8, object.value.string);
-                errdefer self.allocator.free(value_copy);
+            .string => |str| {
+                const value_copy = try self.allocator.dupe(u8, str);
                 new_object.value = .{ .string = value_copy };
             },
-            .int => {
-                // Integer values don't need allocation
-                new_object.value = object.value;
-            },
-            .list => {
-                // For lists, we just pass the list directly since createList handles it
-                new_object.value = object.value;
-            },
+            .int => {}, // No allocation needed
+            .list => {}, // List is moved directly
         }
 
         // Update the entry
-        entry_ptr.* = new_object;
+        gop.value_ptr.* = new_object;
     }
 
     // Delete a key from the store

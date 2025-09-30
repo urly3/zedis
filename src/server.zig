@@ -200,7 +200,7 @@ pub const Server = struct {
 
         // Initialize client in the allocated slot
         client_slot.* = Client.init(
-            self.temp_arena.allocator(),
+            self.base_allocator,
             conn,
             &self.pubsub_context,
             &self.registry,
@@ -223,12 +223,8 @@ pub const Server = struct {
             std.log.debug("Client {} deallocated from pool", .{client_slot.client_id});
         }
 
-        // log how long it took to handle the client
-        const start_time = std.time.nanoTimestamp();
         try client_slot.handle();
-        const end_time = std.time.nanoTimestamp();
-        const runtime = std.math.divCeil(i128, (end_time - start_time), 1_000_000);
-        std.log.info("Client {} handled in {any} ms", .{ client_slot.client_id, runtime });
+        std.log.debug("Client {} handled", .{client_slot.client_id});
     }
 
     // Client pool management methods
