@@ -30,6 +30,9 @@ pub const Command = struct {
     }
 
     pub fn deinit(self: *Command) void {
+        for (self.args.items) |arg| {
+            self.allocator.free(arg.data);
+        }
         self.args.deinit(self.allocator);
     }
 

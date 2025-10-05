@@ -112,11 +112,16 @@ pub const Server = struct {
 
         // Prefer AOF to RDB
         // Load AOF file if it exists
-        if (server.aof_writer.enabled) {
+        // 'true' to be replaced with user option (use aof/rdb on boot)
+        if (true) {
             std.log.info("Loading AOF", .{});
-            var aof_reader = try aof.Reader.init(server.temp_arena.allocator());
-            aof_reader.read(&server) catch |err| {
+            var aof_reader = aof.Reader.init(server.temp_arena.allocator(), &server.store, &server.registry) catch |err| {
                 std.log.err("Failed to load AOF: {s}", .{@errorName(err)});
+                return err;
+            };
+            aof_reader.read() catch |err| {
+                std.log.err("Failed to load AOF: {s}", .{@errorName(err)});
+                return err;
             };
         } else {
             // Load RDB file if it exists

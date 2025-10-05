@@ -70,16 +70,17 @@ pub const CommandRegistry = struct {
 
     pub fn executeCommandAof(
         self: *CommandRegistry,
-        writer: *std.Io.Writer,
         store: *Store,
-        aof_writer: *aof.Writer,
         args: []const Value,
     ) !void {
         var dummy_client: Client = undefined;
+        dummy_client.authenticated = true;
+        const discarding = std.Io.Writer.Discarding.init(&.{});
+        var writer = discarding.writer;
+        var aof_writer: aof.Writer = try .init(false);
         // We should only be calling this command from the aof, so auth is assumed.
         // We should not be calling commands that require a real client.
-        dummy_client.authenticated = true;
-        try self.executeCommand(writer, &dummy_client, store, aof_writer, args);
+        try self.executeCommand(&writer, &dummy_client, store, &aof_writer, args);
     }
 
     pub fn executeCommand(
